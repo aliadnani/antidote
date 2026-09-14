@@ -16,6 +16,7 @@ git submodule update --init --recursive
 cargo run --release
 
 ...
+2026-09-14T17:12:10.859258Z  INFO antidote: Starting Antidote.
 2026-09-14T17:12:10.860018Z  INFO antidote: Loading NAM A2 model via FFI.
 2026-09-14T17:12:10.891034Z  INFO antidote: Loaded NAM A2 model with expected sample rate: 48000
 2026-09-14T17:12:10.891057Z  INFO antidote: Starting CPAL.
