@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 cpal = "0.18.2"
 crossbeam = "0.8.5"
+cxx = "1.0.202"
+cxx-build = "1.0.202"
 thiserror = "2.0.20"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
