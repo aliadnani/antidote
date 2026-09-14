@@ -1,21 +1,30 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tracing::{info, warn};
 
-use crate::modeller::Modeller;
+use crate::{modeller::Modeller};
 
 pub mod coordinator;
 pub mod display;
 pub mod input;
 pub mod modeller;
 pub mod state;
+pub mod nam_ffi;
 
 fn main() {
-    // ...
+    // Logging
     info!("Starting Antidote.");
     tracing_subscriber::fmt::init();
+
+    // NAM
     let modeller = modeller::PassThroughMetricsModeller;
 
-    // ...
+    info!("Loading NAM A2 model via FFI.");
+    let dsp = nam_ffi::load_nam_a2_model_path().expect("Could not load NAM A2 model.");
+    let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(dsp.as_ref().unwrap());
+
+    info!("Loaded NAM A2 model with expected sample rate: {}", sample_rate);
+
+    // CPAL Audio
     info!("Starting CPAL.");
     let host = cpal::default_host();
     let default_input_device = host
@@ -31,7 +40,6 @@ fn main() {
         .with_max_sample_rate()
         .config();
 
-    // ...
     let mut output = vec![0.0; (512) as usize];
     let stream = default_input_device.build_input_stream(
         supported_audio_config,
@@ -46,11 +54,10 @@ fn main() {
         None,
     );
 
-    // ...
+    // Run
     let stream = stream.unwrap();
     stream.play().unwrap();
 
-    // ...
     let playback_duration = std::time::Duration::from_secs(3);
     info!(
         "Playing back audio for {} seconds.",
@@ -58,9 +65,9 @@ fn main() {
     );
     std::thread::sleep(playback_duration);
 
-    // ...
-    drop(stream);
+    info!("Stopping audio playback.");
 
-    // ...
+    // Cleanup
+    drop(stream);
     info!("Exiting Antidote.");
 }
