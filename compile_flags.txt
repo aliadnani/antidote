@@ -1,0 +1,5 @@
+-std=c++20
+-I.
+-Inam_core/NAM
+-Inam_core/Dependencies/eigen
+-Inam_core/Dependencies/nlohmann
