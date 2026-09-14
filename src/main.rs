@@ -12,15 +12,15 @@ pub mod nam_ffi;
 
 fn main() {
     // Logging
-    info!("Starting Antidote.");
     tracing_subscriber::fmt::init();
+    info!("Starting Antidote.");
 
     // NAM
     let modeller = modeller::PassThroughMetricsModeller;
 
     info!("Loading NAM A2 model via FFI.");
     let dsp = nam_ffi::load_nam_a2_model_path().expect("Could not load NAM A2 model.");
-    let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(dsp.as_ref().unwrap());
+    let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(&dsp);
 
     info!("Loaded NAM A2 model with expected sample rate: {}", sample_rate);
 
@@ -45,7 +45,6 @@ fn main() {
         supported_audio_config,
         move |data: &[f32], _| {
             modeller.process_block(data, &mut output).unwrap();
-            ()
         },
         move |error| {
             warn!("Error in input stream: {:?}", error);
