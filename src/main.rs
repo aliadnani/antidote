@@ -19,7 +19,7 @@ fn main() {
     let modeller = modeller::PassThroughMetricsModeller;
 
     info!("Loading NAM A2 model via FFI.");
-    let dsp = nam_ffi::load_nam_a2_model_path().expect("Could not load NAM A2 model.");
+    let dsp = nam_ffi::load_nam_a2_model_path("resources/fender_clean.nam").expect("Could not load NAM A2 model.");
     let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(&dsp);
 
     info!(

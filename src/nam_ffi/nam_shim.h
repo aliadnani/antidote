@@ -8,7 +8,7 @@
 
 using NamA2Model = nam::DSP;
 
-std::unique_ptr<nam::DSP> load_nam_a2_model_path();
+std::unique_ptr<nam::DSP> load_nam_a2_model_path(rust::Str model_path_str);
 
 double get_nam_a2_model_expected_sample_rate(const nam::DSP& dsp); 
 
