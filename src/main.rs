@@ -1,14 +1,14 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tracing::{info, warn};
 
-use crate::{modeller::Modeller};
+use crate::modeller::Modeller;
 
 pub mod coordinator;
 pub mod display;
 pub mod input;
 pub mod modeller;
-pub mod state;
 pub mod nam_ffi;
+pub mod state;
 
 fn main() {
     // Logging
@@ -22,7 +22,10 @@ fn main() {
     let dsp = nam_ffi::load_nam_a2_model_path().expect("Could not load NAM A2 model.");
     let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(&dsp);
 
-    info!("Loaded NAM A2 model with expected sample rate: {}", sample_rate);
+    info!(
+        "Loaded NAM A2 model with expected sample rate: {}",
+        sample_rate
+    );
 
     // CPAL Audio
     info!("Starting CPAL.");
