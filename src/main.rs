@@ -9,6 +9,7 @@ pub mod input;
 pub mod modeller;
 pub mod nam_ffi;
 pub mod state;
+pub mod tests;
 
 fn main() {
     // Logging
