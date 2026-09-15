@@ -7,8 +7,8 @@
 #include "nam_shim.h"
 
 
-std::unique_ptr<nam::DSP> load_nam_a2_model_path() {
-    std::filesystem::path model_path = "resources/fender_clean.nam";
+std::unique_ptr<nam::DSP> load_nam_a2_model_path(rust::Str model_path_str) {
+    std::filesystem::path model_path = std::string(model_path_str);
 
     std::unique_ptr<nam::DSP> dsp = nam::get_dsp(model_path);
 
