@@ -6,6 +6,7 @@
 #include "nam_core/NAM/dsp.h"
 #include "nam_shim.h"
 
+
 std::unique_ptr<nam::DSP> load_nam_a2_model_path() {
     std::filesystem::path model_path = "resources/fender_clean.nam";
 
@@ -18,4 +19,11 @@ double get_nam_a2_model_expected_sample_rate(const nam::DSP& dsp) {
     // Fallible - but whatever
     return dsp.GetExpectedSampleRate();
 
+}
+
+void process_block_with_nam_a2_model(nam::DSP& dsp, rust::Slice<const float> input, rust::Slice<float> output, const int num_frames) {
+    float* _input[1] = { const_cast<float*>(input.data()) };
+    float* _output[1] = { output.data() };
+
+    dsp.process(_input, _output, num_frames);
 }
