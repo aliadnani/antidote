@@ -1,1 +1,9 @@
+# Firmware/Software
 /target
+scratchpad.md
+
+# Hardware 
+*.lck
+hardware/antidote-audio-board/fabrication-toolkit-options.json
+hardware/antidote-audio-board/production/
+hardware/antidote-audio-board/antidote-audio-board-backups/
