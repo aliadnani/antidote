@@ -1,0 +1,122 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	metadata {
+		title = "TAC5112 on TWI4 + I2S0 (standalone, replaces i2s0-2ch) V9";
+		compatible = "radxa,cubie-a7z";
+		category = "misc";
+		exclusive = "twi4", "i2s0_plat", "i2s0_mach", "PJ24", "PJ25",
+			    "PB4", "PB5", "PB6", "PB7", "PB8";
+		description = "Full TAC5112 bring-up: TWI4 control bus (PJ24/PJ25) plus I2S0 audio bus (PB4-PB8) with the codec wired directly into soundcard-mach. Do NOT load alongside sun60iw2p1-i2s0-2ch.dtbo - this overlay replaces it.";
+	};
+};
+
+&pio {
+	twi4_pins_default: twi4-pins-default {
+		pins = "PJ24", "PJ25";
+		function = "twi4";
+		drive-strength = <10>;
+		bias-pull-up;
+	};
+
+	twi4_pins_sleep: twi4-pins-sleep {
+		pins = "PJ24", "PJ25";
+		function = "gpio_in";
+	};
+
+	i2s0_pins_mclk: i2s0-pins-mclk {
+		pins = "PB4";
+		function = "i2s0_mclk";
+		allwinner,drive = <1>;
+		bias-disable;
+	};
+
+	i2s0_pins_bclk: i2s0-pins-bclk {
+		pins = "PB5";
+		function = "i2s0_bclk";
+		allwinner,drive = <1>;
+		bias-disable;
+	};
+
+	i2s0_pins_lrck: i2s0-pins-lrck {
+		pins = "PB6";
+		function = "i2s0_lrck";
+		allwinner,drive = <1>;
+		bias-disable;
+	};
+
+	i2s0_pins_din0: i2s0-pins-din1 {
+		pins = "PB7";
+		function = "i2s0_din1";
+		allwinner,drive = <1>;
+		bias-disable;
+	};
+
+	i2s0_pins_dout0: i2s0-pins-dout1 {
+		pins = "PB8";
+		function = "i2s0_dout1";
+		allwinner,drive = <1>;
+		bias-disable;
+	};
+
+	i2s0_pins_sleep: i2s0-pins-sleep {
+		pins = "PB4", "PB5", "PB6", "PB8", "PB7";
+		function = "io_disabled";
+		allwinner,drive = <1>;
+		bias-disable;
+	};
+};
+
+&twi4 {
+	clock-frequency = <400000>;
+	pinctrl-0 = <&twi4_pins_default>;
+	pinctrl-1 = <&twi4_pins_sleep>;
+	pinctrl-names = "default", "sleep";
+	status = "okay";
+
+	tac5112: audio-codec@50 {
+		compatible = "ti,tac5112";
+		reg = <0x50>;
+		#sound-dai-cells = <0>;
+		ti,vref = <0>;
+		ti,micbias-vg = <0>;
+	};
+};
+
+&i2s0_plat {
+	tdm-num = <0>;
+	tx-pin = <1>;
+	rx-pin = <1>;
+
+	rxfifo-pinmap = <1 1>;
+	rxfifo-chmap = <0 1>;
+
+	tx-hub-en;
+	rx-sync-en;
+	pinctrl-used;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&i2s0_pins_mclk &i2s0_pins_bclk &i2s0_pins_lrck
+		     &i2s0_pins_din0 &i2s0_pins_dout0>;
+	pinctrl-1 = <&i2s0_pins_sleep>;
+	status = "okay";
+};
+
+&i2s0_mach {
+	soundcard-mach,format = "i2s";
+	soundcard-mach,slot-num = <2>;
+	soundcard-mach,slot-width = <32>;
+	soundcard-mach,frame-master = <&i2s0_cpu>;
+	soundcard-mach,bitclock-master = <&i2s0_cpu>;
+	status = "okay";
+
+	i2s0_cpu: soundcard-mach,cpu {
+		sound-dai = <&i2s0_plat>;
+		soundcard-mach,pll-fs = <1>;
+		soundcard-mach,mclk-fs = <256>;
+	};
+
+	soundcard-mach,codec {
+		sound-dai = <&tac5112>;
+	};
+};
