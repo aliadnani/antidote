@@ -5222,7 +5222,7 @@
 	)
 	(text "For next rev.:\nUse Clean 5V for op-amps\nTo reduce mains hum"
 		(exclude_from_sim no)
-		(at 24.13 123.952 0)
+		(at -44.45 127.762 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -5274,6 +5274,12 @@
 		(uuid "0af5501b-2488-4e19-9f2b-93c55031ccc6")
 	)
 	(junction
+		(at 85.09 147.32)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "0c0b246b-f5cb-402a-b469-a94e0a010c92")
+	)
+	(junction
 		(at 172.72 50.8)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -5296,6 +5302,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "208f2f37-b864-4174-8f9d-63e0fee90c97")
+	)
+	(junction
+		(at 85.09 139.7)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "282aaa1c-156e-4074-8529-f2cee5ce2081")
 	)
 	(junction
 		(at 181.61 212.09)
@@ -5326,12 +5338,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "4f8c6ad8-08f3-4173-9e42-593c696d501d")
-	)
-	(junction
-		(at 74.93 144.78)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "53cd26f8-7c89-42ee-a7b6-e4096e8b04ab")
 	)
 	(junction
 		(at 66.04 40.64)
@@ -5482,12 +5488,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "cdc69290-5bd0-4662-92ab-bb4a9001ab1c")
-	)
-	(junction
-		(at 74.93 142.24)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "d3243141-599f-4abb-8666-c1d1c63af5d1")
 	)
 	(junction
 		(at 167.64 207.01)
@@ -5721,7 +5721,7 @@
 	)
 	(wire
 		(pts
-			(xy 74.93 137.16) (xy 81.28 137.16)
+			(xy 82.55 139.7) (xy 85.09 139.7)
 		)
 		(stroke
 			(width 0)
@@ -5758,6 +5758,16 @@
 			(type default)
 		)
 		(uuid "12cfc88f-19f9-48d4-a53a-034ac073531b")
+	)
+	(wire
+		(pts
+			(xy 82.55 142.24) (xy 85.09 142.24)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "141f4815-7fc3-4996-b894-6a971663d2b7")
 	)
 	(wire
 		(pts
@@ -6091,7 +6101,7 @@
 	)
 	(wire
 		(pts
-			(xy 74.93 144.78) (xy 81.28 144.78)
+			(xy 85.09 147.32) (xy 90.17 147.32)
 		)
 		(stroke
 			(width 0)
@@ -6238,6 +6248,16 @@
 			(type default)
 		)
 		(uuid "4c2da49b-067b-4037-af4f-57d29859d9a3")
+	)
+	(wire
+		(pts
+			(xy 82.55 144.78) (xy 85.09 144.78)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "501d4a41-066e-4d91-8def-1eb6b64a11c6")
 	)
 	(wire
 		(pts
@@ -6711,6 +6731,26 @@
 	)
 	(wire
 		(pts
+			(xy 85.09 139.7) (xy 90.17 139.7)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "860c0996-379b-452f-bcd8-0fd5f8961633")
+	)
+	(wire
+		(pts
+			(xy 85.09 142.24) (xy 85.09 139.7)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "886e5d5a-6c1d-43fa-aa74-caff0d4e614e")
+	)
+	(wire
+		(pts
 			(xy 115.57 55.88) (xy 119.38 55.88)
 		)
 		(stroke
@@ -6991,7 +7031,7 @@
 	)
 	(wire
 		(pts
-			(xy 74.93 142.24) (xy 74.93 144.78)
+			(xy 85.09 144.78) (xy 85.09 147.32)
 		)
 		(stroke
 			(width 0)
@@ -7361,13 +7401,13 @@
 	)
 	(wire
 		(pts
-			(xy 74.93 139.7) (xy 74.93 142.24)
+			(xy 82.55 147.32) (xy 85.09 147.32)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "db3b38fe-b647-4620-8127-cfe2a99d4933")
+		(uuid "db316afc-6398-4f93-9997-cd5a4b189c2e")
 	)
 	(wire
 		(pts
@@ -7830,7 +7870,7 @@
 		(uuid "2e3f36af-b091-4c02-aed0-b9be9e938071")
 	)
 	(label "Phones Sleeve"
-		(at 81.28 137.16 0)
+		(at 90.17 139.7 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -8110,7 +8150,7 @@
 		(uuid "e171066e-ddfd-4567-880d-474f36711dff")
 	)
 	(label "Phones Mono"
-		(at 81.28 144.78 0)
+		(at 90.17 147.32 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -13660,7 +13700,7 @@
 	)
 	(symbol
 		(lib_id "Connector_Audio:AudioJack4")
-		(at 69.85 139.7 0)
+		(at 77.47 142.24 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -13671,7 +13711,7 @@
 		(fields_autoplaced yes)
 		(uuid "8234bd0a-007b-43ea-be1b-80e1aac0fa5e")
 		(property "Reference" "J3"
-			(at 67.31 130.81 0)
+			(at 74.93 133.35 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -13681,7 +13721,7 @@
 			)
 		)
 		(property "Value" "Phones"
-			(at 67.31 133.35 0)
+			(at 74.93 135.89 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -13691,7 +13731,7 @@
 			)
 		)
 		(property "Footprint" "Connector_Audio:Jack_3.5mm_PJ320E_Horizontal"
-			(at 69.85 139.7 0)
+			(at 77.47 142.24 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -13702,7 +13742,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 69.85 139.7 0)
+			(at 77.47 142.24 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -13713,7 +13753,7 @@
 			)
 		)
 		(property "Description" "Audio Jack, 4 Poles (TRRS)"
-			(at 69.85 139.7 0)
+			(at 77.47 142.24 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
