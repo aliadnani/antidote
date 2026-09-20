@@ -3,7 +3,7 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("antidote/src/nam_ffi/nam_shim.h");
 
-        type NamA2Model;
+        pub type NamA2Model;
 
         // Hard code the path to the JSON file for now. In the future
         // TODO: Make this configurable once we figure out CXX works

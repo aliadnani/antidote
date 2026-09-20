@@ -1,4 +1,7 @@
-use crate::nam_ffi;
+use crate::{
+    modeller::{Modeller, NamA2ModelModeller},
+    nam_ffi,
+};
 
 #[test]
 fn test_nam_a2_model_load() {
@@ -28,7 +31,7 @@ fn test_nam_a2_model_inference() {
     let mut dsp = nam_ffi::load_nam_a2_model_path("resources/fender_clean.nam")
         .expect("Could not load NAM A2 model.");
 
-    let input = generate_sine_wave(110.0, 48000.0, 2.0);
+    let input: Vec<f32> = generate_sine_wave(110.0, 48000.0, 2.0);
     let mut output = vec![0.0; input.len()];
 
     nam_ffi::process_block_with_nam_a2_model(
@@ -100,4 +103,51 @@ fn test_nam_a2_model_inference() {
             -0.2220757
         ]
     );
+}
+
+#[test]
+fn test_unload_load_unload() {
+    let mut modeller = NamA2ModelModeller::new();
+
+    // Test unloaded: should be a pass-through; sine wave untouched
+    let input = generate_sine_wave(110.0, 48000.0, 2.0);
+    let mut output = vec![0.0; input.len()];
+
+    modeller.process_block(&input, &mut output).unwrap();
+    // Test only the first 20 samples to avoid printing a huge array in case of failure
+    assert_eq!(input[..20], output[..20]);
+
+    // Load the model
+    modeller
+        .load_nam_a2_model("resources/fender_clean.nam")
+        .expect("Could not load NAM A2 model.");
+
+    // Test loaded: should be processed; sine wave should be different
+    let mut output = vec![0.0; input.len()];
+    modeller.process_block(&input, &mut output).unwrap();
+
+    assert_eq!(
+        &output[..10],
+        &[
+            0.00052450894,
+            0.00023981501,
+            -0.0008804427,
+            -0.0037150017,
+            -0.008411667,
+            -0.013675765,
+            -0.017835798,
+            -0.019450665,
+            -0.018403785,
+            -0.0155082615
+        ]
+    );
+
+    // Unload the model
+    modeller.unload_nam_a2_model();
+
+    // Test unloaded again: should be a pass-through; sine wave untouched
+    let mut output = vec![0.0; input.len()];
+    modeller.process_block(&input, &mut output).unwrap();
+
+    assert_eq!(input[..20], output[..20]);
 }
