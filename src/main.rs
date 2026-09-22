@@ -16,7 +16,7 @@ pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
-const BUFFER_SIZE: usize = 16;
+const BUFFER_SIZE: usize = 32;
 
 fn main() {
     // Logging
