@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crossbeam::queue::ArrayQueue;
 use tracing::{info, warn};
 
-use crate::modeller::Modeller;
+use crate::audio::Audio;
 
+pub mod audio;
 pub mod coordinator;
 pub mod display;
 pub mod input;
@@ -16,19 +20,29 @@ fn main() {
     tracing_subscriber::fmt::init();
     info!("Starting Antidote.");
 
-    // NAM
-    let mut modeller = modeller::PassThroughMetricsModeller;
+    // Lock-free ringbuffers
+    let inputs = Arc::new(ArrayQueue::<f32>::new(1024));
+    let outputs = Arc::new(ArrayQueue::<f32>::new(1024));
 
-    info!("Loading NAM A2 model via FFI.");
-    let dsp = nam_ffi::load_nam_a2_model_path("resources/fender_clean.nam")
-        .expect("Could not load NAM A2 model.");
+    let (_command_sender, command_receiver) =
+        crossbeam::channel::unbounded::<audio::AudioCommand>();
 
-    let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(&dsp);
-
-    info!(
-        "Loaded NAM A2 model with expected sample rate: {}",
-        sample_rate
+    // NAM + Audio subsystem
+    let modeller = modeller::NamA2ModelModeller::new();
+    let mut audio = Audio::new(
+        inputs.clone(),
+        outputs.clone(),
+        modeller,
+        512,
+        command_receiver, // Unused for now
     );
+
+    // Start a new thread to run audio processing loop
+    let audio_thread = std::thread::spawn(move || {
+        loop {
+            audio.tick();
+        }
+    });
 
     // CPAL Audio
     info!("Starting CPAL.");
@@ -46,24 +60,47 @@ fn main() {
         .with_max_sample_rate()
         .config();
 
-    let mut output = vec![0.0; (512) as usize];
-    let stream = default_input_device.build_input_stream(
+    let input_stream = default_input_device.build_input_stream(
         supported_audio_config,
         move |data: &[f32], _| {
-            modeller.process_block(data, &mut output).unwrap();
+            // Copy input data to the ringbuffer
+            for &sample in data {
+                inputs.force_push(sample);
+            }
         },
         move |error| {
             warn!("Error in input stream: {:?}", error);
         },
-        // None for waiting forever to initialize the stream
-        None,
+        None, // None waits forever to initialize the stream
     );
+    let output_stream = host
+        .default_output_device()
+        .expect("Failed to acquire default output device.")
+        .build_output_stream(
+            supported_audio_config,
+            move |data: &mut [f32], _| {
+                // Copy output data from the ringbuffer
+                for sample in data.iter_mut() {
+                    *sample = outputs.pop().unwrap_or(0.0);
+                }
+            },
+            move |error| {
+                warn!("Error in output stream: {:?}", error);
+            },
+            // None for waiting forever to initialize the stream
+            None,
+        )
+        .expect("Failed to build output stream.");
 
     // Run
-    let stream = stream.unwrap();
-    stream.play().unwrap();
+    let input_stream = input_stream.unwrap();
+    let output_stream = output_stream;
 
-    let playback_duration = std::time::Duration::from_secs(3);
+    input_stream.play().unwrap();
+    output_stream.play().unwrap();
+
+    // Let the audio run for a while
+    let playback_duration = std::time::Duration::from_secs(5);
     info!(
         "Playing back audio for {} seconds.",
         playback_duration.as_secs()
@@ -73,6 +110,8 @@ fn main() {
     info!("Stopping audio playback.");
 
     // Cleanup
-    drop(stream);
+    drop(input_stream);
+    drop(output_stream);
+    drop(audio_thread);
     info!("Exiting Antidote.");
 }
