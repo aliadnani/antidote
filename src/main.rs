@@ -4,7 +4,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam::queue::ArrayQueue;
 use tracing::{info, warn};
 
-use crate::{audio::Audio, modeller::Modeller};
+use crate::{
+    audio::{Audio, AudioStats},
+    modeller::Modeller,
+};
 
 pub mod audio;
 pub mod coordinator;
@@ -16,8 +19,11 @@ pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
+const AUDIO_CHANNELS: usize = 2;
 const BUFFER_SIZE: usize = 256;
-const QUEUE_CAPACITY: usize = 512;
+// Queue capacity is measured in stereo frames and provides four callback periods
+// of headroom, rather than one period of interleaved scalar samples.
+const QUEUE_CAPACITY: usize = BUFFER_SIZE * 4;
 const AUDIO_THREAD_RT_PRIORITY: i32 = 80;
 const I32_FULL_SCALE: f32 = 2_147_483_648.0;
 
@@ -27,15 +33,18 @@ fn main() {
     info!("Starting Antidote.");
 
     // Lock-free ringbuffers
-    let inputs = Arc::new(ArrayQueue::<f32>::new(QUEUE_CAPACITY));
-    let outputs = Arc::new(ArrayQueue::<f32>::new(QUEUE_CAPACITY));
+    let inputs = Arc::new(ArrayQueue::<[f32; AUDIO_CHANNELS]>::new(QUEUE_CAPACITY));
+    let outputs = Arc::new(ArrayQueue::<[f32; AUDIO_CHANNELS]>::new(QUEUE_CAPACITY));
+    let audio_stats = Arc::new(AudioStats::new());
 
     let (_command_sender, command_receiver) =
         crossbeam::channel::unbounded::<audio::AudioCommand>();
 
     // NAM + Audio subsystem
     let mut modeller = modeller::NamA2ModelModeller::new();
-    modeller.load_nam_a2_model("resources/fender_brown.nam").expect("Could not load NAM A2 model.");
+    modeller
+        .load_nam_a2_model("resources/fender_brown.nam")
+        .expect("Could not load NAM A2 model.");
 
     let mut audio = Audio::new(
         inputs.clone(),
@@ -43,6 +52,7 @@ fn main() {
         modeller,
         BUFFER_SIZE,
         command_receiver, // Unused for now
+        audio_stats.clone(),
     );
 
     // Start a new thread to run audio processing loop
@@ -70,7 +80,7 @@ fn main() {
         .expect("device not found");
 
     let config = cpal::StreamConfig {
-        channels: 2,
+        channels: AUDIO_CHANNELS as u16,
         sample_rate: 48_000,
         buffer_size: cpal::BufferSize::Fixed(BUFFER_SIZE as u32),
     };
@@ -87,11 +97,11 @@ fn main() {
         let latency_monitor = latency_monitor.clone();
         let inputs = inputs.clone();
         let outputs = outputs.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                latency_monitor.report(&inputs, &outputs);
-            }
+        let audio_stats = audio_stats.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            latency_monitor.report(&inputs, &outputs);
+            audio_stats.report();
         });
     }
 
@@ -99,14 +109,22 @@ fn main() {
         config,
         {
             let latency_monitor = latency_monitor.clone();
+            let audio_stats = audio_stats.clone();
             move |data: &[i32], info: &cpal::InputCallbackInfo| {
                 latency_monitor.record_input(
                     info.timestamp().callback,
                     info.timestamp().capture,
-                    data.len(),
+                    data.len() / AUDIO_CHANNELS,
                 );
-                for &sample in data {
-                    inputs.force_push(sample as f32 / I32_FULL_SCALE);
+                let mut frames = data.chunks_exact(AUDIO_CHANNELS);
+                for frame in &mut frames {
+                    let frame = [
+                        frame[0] as f32 / I32_FULL_SCALE,
+                        frame[1] as f32 / I32_FULL_SCALE,
+                    ];
+                    if inputs.force_push(frame).is_some() {
+                        audio_stats.record_input_drop();
+                    }
                 }
             }
         },
@@ -130,11 +148,20 @@ fn main() {
                 latency_monitor.record_output(
                     info.timestamp().callback,
                     info.timestamp().playback,
-                    data.len(),
+                    data.len() / AUDIO_CHANNELS,
                 );
-                // Copy output data from the ringbuffer
-                for sample in data.iter_mut() {
-                    *sample = (outputs.pop().unwrap_or(0.0) * I32_FULL_SCALE) as i32;
+                let mut frames = data.chunks_exact_mut(AUDIO_CHANNELS);
+                for frame in &mut frames {
+                    let sample = match outputs.pop() {
+                        Some([sample, ..]) => sample,
+                        None => {
+                            audio_stats.record_output_underrun();
+                            0.0
+                        }
+                    };
+                    let sample = (sample * I32_FULL_SCALE) as i32;
+                    frame[0] = sample;
+                    frame[1] = sample;
                 }
             },
             move |error| {
@@ -185,10 +212,7 @@ fn promote_current_thread_to_rt(priority: i32) {
                 ret
             );
         } else {
-            info!(
-                "Promoted audio thread to SCHED_FIFO priority {}.",
-                priority
-            );
+            info!("Promoted audio thread to SCHED_FIFO priority {}.", priority);
         }
     }
 }

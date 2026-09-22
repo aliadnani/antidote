@@ -1,18 +1,68 @@
 use crossbeam::{channel::Receiver, queue::ArrayQueue};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use std::thread;
+use std::time::Instant;
 use tracing::error;
 
-use crate::modeller::Modeller;
+use crate::{modeller::Modeller, AUDIO_CHANNELS};
+
+pub struct AudioStats {
+    input_drops: AtomicU64,
+    output_drops: AtomicU64,
+    output_underruns: AtomicU64,
+    max_process_ns: AtomicU64,
+}
+
+impl AudioStats {
+    pub fn new() -> Self {
+        Self {
+            input_drops: AtomicU64::new(0),
+            output_drops: AtomicU64::new(0),
+            output_underruns: AtomicU64::new(0),
+            max_process_ns: AtomicU64::new(0),
+        }
+    }
+
+    pub fn record_input_drop(&self) {
+        self.input_drops.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_output_underrun(&self) {
+        self.output_underruns.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_output_drop(&self) {
+        self.output_drops.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_process_time(&self, duration_ns: u64) {
+        self.max_process_ns
+            .fetch_max(duration_ns, Ordering::Relaxed);
+    }
+
+    pub fn report(&self) {
+        tracing::info!(
+            input_drops = self.input_drops.load(Ordering::Relaxed),
+            output_drops = self.output_drops.load(Ordering::Relaxed),
+            output_underruns = self.output_underruns.load(Ordering::Relaxed),
+            max_process_ms = self.max_process_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0,
+            "Audio timing"
+        );
+    }
+}
 
 pub struct Audio<T: Modeller> {
-    inputs: Arc<ArrayQueue<f32>>,
-    outputs: Arc<ArrayQueue<f32>>,
+    inputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+    outputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
     // Pre-allocated - as to avoid on the hot path
     input_buffer: Vec<f32>,
     output_buffer: Vec<f32>,
     modeller: T,
     command_channel: Receiver<AudioCommand>,
+    stats: Arc<AudioStats>,
 }
 
 pub enum AudioCommand {
@@ -22,11 +72,12 @@ pub enum AudioCommand {
 
 impl<T: Modeller> Audio<T> {
     pub fn new(
-        inputs: Arc<ArrayQueue<f32>>,
-        outputs: Arc<ArrayQueue<f32>>,
+        inputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+        outputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
         modeller: T,
         chunk_size: usize,
         command_channel: Receiver<AudioCommand>,
+        stats: Arc<AudioStats>,
     ) -> Self {
         Audio {
             inputs,
@@ -35,6 +86,7 @@ impl<T: Modeller> Audio<T> {
             command_channel,
             input_buffer: vec![0.0; chunk_size],
             output_buffer: vec![0.0; chunk_size],
+            stats,
         }
     }
 
@@ -63,7 +115,7 @@ impl<T: Modeller> Audio<T> {
 
         const SPIN_PHASE_CUTOFF: usize = 100;
         const YIELD_PHASE_CUTOFF: usize = 200;
-        const PARK_DURATION: std::time::Duration = std::time::Duration::from_micros(500);
+        const PARK_DURATION: std::time::Duration = std::time::Duration::from_micros(50);
 
         let mut popped_count = 0;
         let mut spun_count = 0;
@@ -71,7 +123,9 @@ impl<T: Modeller> Audio<T> {
         while popped_count < self.input_buffer.len() {
             while popped_count < self.input_buffer.len() {
                 match self.inputs.pop() {
-                    Some(sample) => {
+                    Some([sample, ..]) => {
+                        // NAM is a mono model. Use the first input channel and
+                        // duplicate the processed signal to both outputs.
                         self.input_buffer[popped_count] = sample;
                         popped_count += 1;
                     }
@@ -92,23 +146,20 @@ impl<T: Modeller> Audio<T> {
             }
         }
 
+        let process_start = Instant::now();
         self.modeller
             .process_block(&self.input_buffer, &mut self.output_buffer)
             .inspect_err(|e| {
                 error!("Failed to process block with NAM A2 model: {:?}", e);
             })
             .ok();
+        self.stats
+            .record_process_time(process_start.elapsed().as_nanos() as u64);
 
         for &sample in &self.output_buffer {
-            self.outputs.force_push(sample);
-        }
-
-        // The input and output devices run on independent clocks that drift
-        // against each other, which lets the output queue level wander. Bounding
-        // it here caps queue occupancy latency at the cost of a click per drain.
-        let max_output_queue_level = self.output_buffer.len() * 2;
-        while self.outputs.len() > max_output_queue_level {
-            self.outputs.pop();
+            if self.outputs.force_push([sample; AUDIO_CHANNELS]).is_some() {
+                self.stats.record_output_drop();
+            }
         }
     }
 }
