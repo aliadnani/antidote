@@ -63,7 +63,6 @@ fn main() {
     let input_stream = default_input_device.build_input_stream(
         supported_audio_config,
         move |data: &[f32], _| {
-            // Copy input data to the ringbuffer
             for &sample in data {
                 inputs.force_push(sample);
             }
@@ -73,9 +72,16 @@ fn main() {
         },
         None, // None waits forever to initialize the stream
     );
-    let output_stream = host
+    let output_device = host
         .default_output_device()
-        .expect("Failed to acquire default output device.")
+        .expect("Failed to acquire default output device.");
+
+    info!(
+        "Default input device: {:?}, default output device: {:?}",
+        default_input_device, output_device
+    );
+
+    let output_stream = output_device
         .build_output_stream(
             supported_audio_config,
             move |data: &mut [f32], _| {
@@ -83,6 +89,12 @@ fn main() {
                 for sample in data.iter_mut() {
                     *sample = outputs.pop().unwrap_or(0.0);
                 }
+                
+                info!(
+                    "Output stream callback executed. Output buffer length: {}, max/min values: max: {}, min: {}",
+                     data.len(),
+                      data.iter().cloned().fold(f32::MIN, f32::max), data.iter().cloned().fold(f32::MAX, f32::min));
+
             },
             move |error| {
                 warn!("Error in output stream: {:?}", error);
