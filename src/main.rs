@@ -16,8 +16,8 @@ pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
-const BUFFER_SIZE: usize = 32;
-const QUEUE_CAPACITY: usize = 256;
+const BUFFER_SIZE: usize = 256;
+const QUEUE_CAPACITY: usize = 512;
 const AUDIO_THREAD_RT_PRIORITY: i32 = 80;
 const I32_FULL_SCALE: f32 = 2_147_483_648.0;
 
