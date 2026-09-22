@@ -102,5 +102,13 @@ impl<T: Modeller> Audio<T> {
         for &sample in &self.output_buffer {
             self.outputs.force_push(sample);
         }
+
+        // The input and output devices run on independent clocks that drift
+        // against each other, which lets the output queue level wander. Bounding
+        // it here caps queue occupancy latency at the cost of a click per drain.
+        let max_output_queue_level = self.output_buffer.len() * 4;
+        while self.outputs.len() > max_output_queue_level {
+            self.outputs.pop();
+        }
     }
 }

@@ -10,12 +10,13 @@ pub mod audio;
 pub mod coordinator;
 pub mod display;
 pub mod input;
+pub mod latency;
 pub mod modeller;
 pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
-const BUFFER_SIZE: usize = 32;
+const BUFFER_SIZE: usize = 16;
 
 fn main() {
     // Logging
@@ -64,11 +65,41 @@ fn main() {
 
     supported_audio_config.buffer_size = cpal::BufferSize::Fixed(BUFFER_SIZE as u32);
 
+    info!(
+        "Audio config: {:?} Hz, {:?} channels, buffer {:?}",
+        supported_audio_config.sample_rate,
+        supported_audio_config.channels,
+        supported_audio_config.buffer_size
+    );
+
+    let latency_monitor = Arc::new(latency::LatencyMonitor::new(
+        supported_audio_config.sample_rate as f64,
+    ));
+
+    // Report latency stats periodically without touching the audio threads
+    {
+        let latency_monitor = latency_monitor.clone();
+        let inputs = inputs.clone();
+        let outputs = outputs.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            latency_monitor.report(&inputs, &outputs);
+        });
+    }
+
     let input_stream = default_input_device.build_input_stream(
         supported_audio_config,
-        move |data: &[f32], _| {
-            for &sample in data {
-                inputs.force_push(sample);
+        {
+            let latency_monitor = latency_monitor.clone();
+            move |data: &[f32], info: &cpal::InputCallbackInfo| {
+                latency_monitor.record_input(
+                    info.timestamp().callback,
+                    info.timestamp().capture,
+                    data.len(),
+                );
+                for &sample in data {
+                    inputs.force_push(sample);
+                }
             }
         },
         move |error| {
@@ -90,11 +121,17 @@ fn main() {
     let output_stream = output_device
         .build_output_stream(
             supported_audio_config,
-            move |data: &mut [f32], _| {
+            move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
+                latency_monitor.record_output(
+                    info.timestamp().callback,
+                    info.timestamp().playback,
+                    data.len(),
+                );
                 // Copy output data from the ringbuffer
                 for sample in data.iter_mut() {
                     *sample = outputs.pop().unwrap_or(0.0);
                 }
+                
             },
             move |error| {
                 warn!("Error in output stream: {:?}", error);

@@ -24,5 +24,10 @@ fn main() {
     build.compile("nam_ffi");
 
     // Force load ALL symbols - prevent linker from stripping out unused symbols
-    println!("cargo:rustc-link-arg=-Wl,-all_load");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    match target_os.as_str() {
+        "macos" | "ios" => println!("cargo:rustc-link-arg=-Wl,-all_load"),
+        "linux" => println!("cargo:rustc-link-arg=-Wl,--whole-archive"),
+        _ => {}
+    }
 }
