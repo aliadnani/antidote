@@ -5,8 +5,7 @@ pub mod ffi {
 
         pub type NamA2Model;
 
-        // Hard code the path to the JSON file for now. In the future
-        // TODO: Make this configurable once we figure out CXX works
+
         fn load_nam_a2_model_path(model_path_str: &str) -> Result<UniquePtr<NamA2Model>>;
 
         fn get_nam_a2_model_expected_sample_rate(model: &NamA2Model) -> f64;
@@ -19,5 +18,8 @@ pub mod ffi {
         );
     }
 }
+
+// No idea if NamA2Models are actually thread safe - but so far no issues.
+unsafe impl Send for ffi::NamA2Model {}
 
 pub use self::ffi::*;
