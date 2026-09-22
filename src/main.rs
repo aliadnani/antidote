@@ -50,6 +50,13 @@ fn main() {
     // CPAL Audio
     info!("Starting CPAL.");
     let host = cpal::default_host();
+
+    let all_devices = host
+        .devices()
+        .expect("Failed to enumerate audio devices.");
+
+    info!("Available audio devices: {:?}", all_devices.map(|d| d.description()).collect::<Vec<_>>());
+
     let default_input_device = host
         .default_input_device()
         .inspect(|d| info!("Acquired default input device: {:?}", d))
