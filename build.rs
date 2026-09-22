@@ -21,8 +21,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/nam_ffi/nam_shim.cc");
     println!("cargo:rerun-if-changed=src/nam_ffi/nam_shim.h");
-    build.compile("nam_ffi");
 
-    // Force load ALL symbols - prevent linker from stripping out unused symbols
-    println!("cargo:rustc-link-arg=-Wl,-all_load");
+    build.link_lib_modifier("+whole-archive");
+    build.compile("nam_ffi");
 }
