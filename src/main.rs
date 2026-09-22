@@ -16,7 +16,10 @@ pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
-const BUFFER_SIZE: usize = 48;
+const BUFFER_SIZE: usize = 32;
+const QUEUE_CAPACITY: usize = 256;
+const AUDIO_THREAD_RT_PRIORITY: i32 = 80;
+const I32_FULL_SCALE: f32 = 2_147_483_648.0;
 
 fn main() {
     // Logging
@@ -24,8 +27,8 @@ fn main() {
     info!("Starting Antidote.");
 
     // Lock-free ringbuffers
-    let inputs = Arc::new(ArrayQueue::<f32>::new(1024));
-    let outputs = Arc::new(ArrayQueue::<f32>::new(1024));
+    let inputs = Arc::new(ArrayQueue::<f32>::new(QUEUE_CAPACITY));
+    let outputs = Arc::new(ArrayQueue::<f32>::new(QUEUE_CAPACITY));
 
     let (_command_sender, command_receiver) =
         crossbeam::channel::unbounded::<audio::AudioCommand>();
@@ -42,6 +45,7 @@ fn main() {
 
     // Start a new thread to run audio processing loop
     let audio_thread = std::thread::spawn(move || {
+        promote_current_thread_to_rt(AUDIO_THREAD_RT_PRIORITY);
         loop {
             audio.tick();
         }
@@ -51,7 +55,7 @@ fn main() {
     info!("Starting CPAL.");
     let host = cpal::default_host();
 
-    let wanted = "plughw:CARD=sndi2s0,DEV=0";
+    let wanted = "hw:CARD=sndi2s0,DEV=0";
     let device = host
         .devices()
         .expect("Failed to enumerate audio devices.")
@@ -93,14 +97,14 @@ fn main() {
         config,
         {
             let latency_monitor = latency_monitor.clone();
-            move |data: &[f32], info: &cpal::InputCallbackInfo| {
+            move |data: &[i32], info: &cpal::InputCallbackInfo| {
                 latency_monitor.record_input(
                     info.timestamp().callback,
                     info.timestamp().capture,
                     data.len(),
                 );
                 for &sample in data {
-                    inputs.force_push(sample);
+                    inputs.force_push(sample as f32 / I32_FULL_SCALE);
                 }
             }
         },
@@ -120,7 +124,7 @@ fn main() {
     let output_stream = device
         .build_output_stream(
             config,
-            move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
+            move |data: &mut [i32], info: &cpal::OutputCallbackInfo| {
                 latency_monitor.record_output(
                     info.timestamp().callback,
                     info.timestamp().playback,
@@ -128,7 +132,7 @@ fn main() {
                 );
                 // Copy output data from the ringbuffer
                 for sample in data.iter_mut() {
-                    *sample = outputs.pop().unwrap_or(0.0);
+                    *sample = (outputs.pop().unwrap_or(0.0) * I32_FULL_SCALE) as i32;
                 }
             },
             move |error| {
@@ -162,3 +166,30 @@ fn main() {
     drop(audio_thread);
     info!("Exiting Antidote.");
 }
+
+#[cfg(target_os = "linux")]
+fn promote_current_thread_to_rt(priority: i32) {
+    // SAFETY: `sched_param` is a plain C struct, and `pthread_self` /
+    // `pthread_setschedparam` operate on the calling thread only. Failure (e.g. missing
+    // CAP_SYS_NICE or an rtprio rlimit) is non-fatal; we stay on the default scheduler.
+    unsafe {
+        let param = libc::sched_param {
+            sched_priority: priority,
+        };
+        let ret = libc::pthread_setschedparam(libc::pthread_self(), libc::SCHED_FIFO, &param);
+        if ret != 0 {
+            warn!(
+                "Failed to promote audio thread to SCHED_FIFO (error {}); running under the default scheduler.",
+                ret
+            );
+        } else {
+            info!(
+                "Promoted audio thread to SCHED_FIFO priority {}.",
+                priority
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn promote_current_thread_to_rt(_priority: i32) {}
