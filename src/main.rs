@@ -15,6 +15,8 @@ pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
+const BUFFER_SIZE: usize = 32;
+
 fn main() {
     // Logging
     tracing_subscriber::fmt::init();
@@ -33,7 +35,7 @@ fn main() {
         inputs.clone(),
         outputs.clone(),
         modeller,
-        512,
+        BUFFER_SIZE,
         command_receiver, // Unused for now
     );
 
@@ -52,13 +54,15 @@ fn main() {
         .inspect(|d| info!("Acquired default input device: {:?}", d))
         .expect("Failed to acquire default input device.");
 
-    let supported_audio_config = default_input_device
+    let mut supported_audio_config = default_input_device
         .supported_input_configs()
         .expect("Error while querying configs.")
         .next()
         .expect("No supported configs.")
         .with_max_sample_rate()
         .config();
+
+    supported_audio_config.buffer_size = cpal::BufferSize::Fixed(BUFFER_SIZE as u32);
 
     let input_stream = default_input_device.build_input_stream(
         supported_audio_config,
@@ -81,6 +85,8 @@ fn main() {
         default_input_device, output_device
     );
 
+    info!("Supported audio config: {:?}", supported_audio_config);
+
     let output_stream = output_device
         .build_output_stream(
             supported_audio_config,
@@ -89,12 +95,6 @@ fn main() {
                 for sample in data.iter_mut() {
                     *sample = outputs.pop().unwrap_or(0.0);
                 }
-                
-                info!(
-                    "Output stream callback executed. Output buffer length: {}, max/min values: max: {}, min: {}",
-                     data.len(),
-                      data.iter().cloned().fold(f32::MIN, f32::max), data.iter().cloned().fold(f32::MAX, f32::min));
-
             },
             move |error| {
                 warn!("Error in output stream: {:?}", error);
@@ -112,7 +112,7 @@ fn main() {
     output_stream.play().unwrap();
 
     // Let the audio run for a while
-    let playback_duration = std::time::Duration::from_secs(5);
+    let playback_duration = std::time::Duration::from_secs(50);
     info!(
         "Playing back audio for {} seconds.",
         playback_duration.as_secs()

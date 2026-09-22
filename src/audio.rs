@@ -12,7 +12,6 @@ pub struct Audio<T: Modeller> {
     input_buffer: Vec<f32>,
     output_buffer: Vec<f32>,
     modeller: T,
-    chunk_size: usize,
     command_channel: Receiver<AudioCommand>,
 }
 
@@ -33,7 +32,6 @@ impl<T: Modeller> Audio<T> {
             inputs,
             outputs,
             modeller,
-            chunk_size,
             command_channel,
             input_buffer: vec![0.0; chunk_size],
             output_buffer: vec![0.0; chunk_size],
