@@ -16,7 +16,7 @@ pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
-const BUFFER_SIZE: usize = 32;
+const BUFFER_SIZE: usize = 48;
 
 fn main() {
     // Logging
@@ -51,18 +51,19 @@ fn main() {
     info!("Starting CPAL.");
     let host = cpal::default_host();
 
-    let all_devices = host
+    let wanted = "hw:CARD=sndi2s0,DEV=0";
+    let device = host
         .devices()
-        .expect("Failed to enumerate audio devices.");
+        .expect("Failed to enumerate audio devices.")
+        .find(|d| {
+            d.description()
+                .ok()
+                .and_then(|x| x.driver().map(str::to_owned))
+                == Some(wanted.into())
+        })
+        .expect("device not found");
 
-    info!("Available audio devices: {:?}", all_devices.map(|d| d.description()).collect::<Vec<_>>());
-
-    let default_input_device = host
-        .default_input_device()
-        .inspect(|d| info!("Acquired default input device: {:?}", d))
-        .expect("Failed to acquire default input device.");
-
-    let mut supported_audio_config = default_input_device
+    let mut supported_audio_config = device
         .supported_input_configs()
         .expect("Error while querying configs.")
         .next()
@@ -88,13 +89,15 @@ fn main() {
         let latency_monitor = latency_monitor.clone();
         let inputs = inputs.clone();
         let outputs = outputs.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            latency_monitor.report(&inputs, &outputs);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                latency_monitor.report(&inputs, &outputs);
+            }
         });
     }
 
-    let input_stream = default_input_device.build_input_stream(
+    let input_stream = device.build_input_stream(
         supported_audio_config,
         {
             let latency_monitor = latency_monitor.clone();
@@ -114,18 +117,15 @@ fn main() {
         },
         None, // None waits forever to initialize the stream
     );
-    let output_device = host
-        .default_output_device()
-        .expect("Failed to acquire default output device.");
 
     info!(
         "Default input device: {:?}, default output device: {:?}",
-        default_input_device, output_device
+        device, device
     );
 
-    info!("Supported audio config: {:?}", supported_audio_config);
+    info!("Supported audio config: {:?}", device);
 
-    let output_stream = output_device
+    let output_stream = device
         .build_output_stream(
             supported_audio_config,
             move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
@@ -138,7 +138,6 @@ fn main() {
                 for sample in data.iter_mut() {
                     *sample = outputs.pop().unwrap_or(0.0);
                 }
-                
             },
             move |error| {
                 warn!("Error in output stream: {:?}", error);
