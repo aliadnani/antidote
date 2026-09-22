@@ -63,26 +63,18 @@ fn main() {
         })
         .expect("device not found");
 
-    let mut supported_audio_config = device
-        .supported_input_configs()
-        .expect("Error while querying configs.")
-        .next()
-        .expect("No supported configs.")
-        .with_max_sample_rate()
-        .config();
-
-    supported_audio_config.buffer_size = cpal::BufferSize::Fixed(BUFFER_SIZE as u32);
+    let config = cpal::StreamConfig {
+        channels: 2,
+        sample_rate: 48_000,
+        buffer_size: cpal::BufferSize::Fixed(BUFFER_SIZE as u32),
+    };
 
     info!(
         "Audio config: {:?} Hz, {:?} channels, buffer {:?}",
-        supported_audio_config.sample_rate,
-        supported_audio_config.channels,
-        supported_audio_config.buffer_size
+        config.sample_rate, config.channels, config.buffer_size
     );
 
-    let latency_monitor = Arc::new(latency::LatencyMonitor::new(
-        supported_audio_config.sample_rate as f64,
-    ));
+    let latency_monitor = Arc::new(latency::LatencyMonitor::new(config.sample_rate as f64));
 
     // Report latency stats periodically without touching the audio threads
     {
@@ -98,7 +90,7 @@ fn main() {
     }
 
     let input_stream = device.build_input_stream(
-        supported_audio_config,
+        config,
         {
             let latency_monitor = latency_monitor.clone();
             move |data: &[f32], info: &cpal::InputCallbackInfo| {
@@ -127,7 +119,7 @@ fn main() {
 
     let output_stream = device
         .build_output_stream(
-            supported_audio_config,
+            config,
             move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
                 latency_monitor.record_output(
                     info.timestamp().callback,
