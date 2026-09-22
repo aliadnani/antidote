@@ -21,13 +21,12 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/nam_ffi/nam_shim.cc");
     println!("cargo:rerun-if-changed=src/nam_ffi/nam_shim.h");
-    build.compile("nam_ffi");
 
-    // Force load ALL symbols - prevent linker from stripping out unused symbols
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    match target_os.as_str() {
-        "macos" | "ios" => println!("cargo:rustc-link-arg=-Wl,-all_load"),
-        "linux" => println!("cargo:rustc-link-arg=-Wl,--whole-archive"),
-        _ => {}
-    }
+    // Force the linker to pull in every object in the static lib so the
+    // config-parser static initializers in otherwise-unreferenced NAM
+    // translation units (e.g. container.cpp) actually run. rustc's
+    // `+whole-archive` modifier is position-independent, unlike a raw
+    // -Wl,--whole-archive link-arg, which only affects archives listed after it.
+    build.link_lib_modifier("+whole-archive");
+    build.compile("nam_ffi");
 }
