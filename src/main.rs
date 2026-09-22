@@ -51,7 +51,7 @@ fn main() {
     info!("Starting CPAL.");
     let host = cpal::default_host();
 
-    let wanted = "hw:CARD=sndi2s0,DEV=0";
+    let wanted = "plughw:CARD=sndi2s0,DEV=0";
     let device = host
         .devices()
         .expect("Failed to enumerate audio devices.")
