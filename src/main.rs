@@ -4,7 +4,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam::queue::ArrayQueue;
 use tracing::{info, warn};
 
-use crate::audio::Audio;
+use crate::{audio::Audio, modeller::Modeller};
 
 pub mod audio;
 pub mod coordinator;
@@ -34,7 +34,9 @@ fn main() {
         crossbeam::channel::unbounded::<audio::AudioCommand>();
 
     // NAM + Audio subsystem
-    let modeller = modeller::NamA2ModelModeller::new();
+    let mut modeller = modeller::NamA2ModelModeller::new();
+    modeller.load_nam_a2_model("resources/fender_brown.nam").expect("Could not load NAM A2 model.");
+
     let mut audio = Audio::new(
         inputs.clone(),
         outputs.clone(),
