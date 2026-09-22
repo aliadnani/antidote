@@ -4,7 +4,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam::queue::ArrayQueue;
 use tracing::{info, warn};
 
-use crate::audio::Audio;
+use crate::{
+    audio::{Audio, AudioStats},
+    modeller::Modeller,
+};
 
 pub mod audio;
 pub mod coordinator;
@@ -15,7 +18,12 @@ pub mod nam_ffi;
 pub mod state;
 pub mod tests;
 
-const BUFFER_SIZE: usize = 32;
+const AUDIO_CHANNELS: usize = 2;
+const BUFFER_SIZE: usize = 256;
+// Queue capacity is measured in stereo frames and provides four callback periods
+// of headroom, rather than one period of interleaved scalar samples.
+const QUEUE_CAPACITY: usize = BUFFER_SIZE * 4;
+const I32_FULL_SCALE: f32 = 2_147_483_648.0;
 
 fn main() {
     // Logging
@@ -23,20 +31,26 @@ fn main() {
     info!("Starting Antidote.");
 
     // Lock-free ringbuffers
-    let inputs = Arc::new(ArrayQueue::<f32>::new(1024));
-    let outputs = Arc::new(ArrayQueue::<f32>::new(1024));
+    let inputs = Arc::new(ArrayQueue::<[f32; AUDIO_CHANNELS]>::new(QUEUE_CAPACITY));
+    let outputs = Arc::new(ArrayQueue::<[f32; AUDIO_CHANNELS]>::new(QUEUE_CAPACITY));
+    let audio_stats = Arc::new(AudioStats::new());
 
     let (_command_sender, command_receiver) =
         crossbeam::channel::unbounded::<audio::AudioCommand>();
 
     // NAM + Audio subsystem
-    let modeller = modeller::NamA2ModelModeller::new();
+    let mut modeller = modeller::NamA2ModelModeller::new();
+    modeller
+        .load_nam_a2_model("resources/fender_brown.nam")
+        .expect("Could not load NAM A2 model.");
+
     let mut audio = Audio::new(
         inputs.clone(),
         outputs.clone(),
         modeller,
         BUFFER_SIZE,
         command_receiver, // Unused for now
+        audio_stats.clone(),
     );
 
     // Start a new thread to run audio processing loop
@@ -49,26 +63,57 @@ fn main() {
     // CPAL Audio
     info!("Starting CPAL.");
     let host = cpal::default_host();
-    let default_input_device = host
-        .default_input_device()
-        .inspect(|d| info!("Acquired default input device: {:?}", d))
-        .expect("Failed to acquire default input device.");
 
-    let mut supported_audio_config = default_input_device
-        .supported_input_configs()
-        .expect("Error while querying configs.")
-        .next()
-        .expect("No supported configs.")
-        .with_max_sample_rate()
-        .config();
+    let wanted = "hw:CARD=sndi2s0,DEV=0";
+    let device = host
+        .devices()
+        .expect("Failed to enumerate audio devices.")
+        .find(|d| {
+            d.description()
+                .ok()
+                .and_then(|x| x.driver().map(str::to_owned))
+                == Some(wanted.into())
+        })
+        .expect("device not found");
 
-    supported_audio_config.buffer_size = cpal::BufferSize::Fixed(BUFFER_SIZE as u32);
+    let config = cpal::StreamConfig {
+        channels: AUDIO_CHANNELS as u16,
+        sample_rate: 48_000,
+        buffer_size: cpal::BufferSize::Fixed(BUFFER_SIZE as u32),
+    };
 
-    let input_stream = default_input_device.build_input_stream(
-        supported_audio_config,
-        move |data: &[f32], _| {
-            for &sample in data {
-                inputs.force_push(sample);
+    info!(
+        "Audio config: {:?} Hz, {:?} channels, buffer {:?}",
+        config.sample_rate, config.channels, config.buffer_size
+    );
+
+    // Report queue errors periodically without touching the audio threads.
+    {
+        let audio_stats = audio_stats.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                audio_stats.report();
+            }
+        });
+    }
+
+    let input_stream = device.build_input_stream(
+        config,
+        {
+            let audio_stats = audio_stats.clone();
+            move |data: &[i32], _info: &cpal::InputCallbackInfo| {
+                let mut frames = data.chunks_exact(AUDIO_CHANNELS);
+                for frame in &mut frames {
+                    let frame = [
+                        // PCM samples from our I2S lines are i32, so we need to convert them first.
+                        frame[0] as f32 / I32_FULL_SCALE,
+                        frame[1] as f32 / I32_FULL_SCALE,
+                    ];
+                    if inputs.force_push(frame).is_some() {
+                        audio_stats.record_input_drop();
+                    }
+                }
             }
         },
         move |error| {
@@ -76,24 +121,30 @@ fn main() {
         },
         None, // None waits forever to initialize the stream
     );
-    let output_device = host
-        .default_output_device()
-        .expect("Failed to acquire default output device.");
 
     info!(
         "Default input device: {:?}, default output device: {:?}",
-        default_input_device, output_device
+        device, device
     );
 
-    info!("Supported audio config: {:?}", supported_audio_config);
+    info!("Supported audio config: {:?}", device);
 
-    let output_stream = output_device
+    let output_stream = device
         .build_output_stream(
-            supported_audio_config,
-            move |data: &mut [f32], _| {
-                // Copy output data from the ringbuffer
-                for sample in data.iter_mut() {
-                    *sample = outputs.pop().unwrap_or(0.0);
+            config,
+            move |data: &mut [i32], _info: &cpal::OutputCallbackInfo| {
+                let mut frames = data.chunks_exact_mut(AUDIO_CHANNELS);
+                for frame in &mut frames {
+                    let sample = match outputs.pop() {
+                        Some([sample, ..]) => sample,
+                        None => {
+                            audio_stats.record_output_underrun();
+                            0.0
+                        }
+                    };
+                    let sample = (sample * I32_FULL_SCALE) as i32;
+                    frame[0] = sample;
+                    frame[1] = sample;
                 }
             },
             move |error| {
