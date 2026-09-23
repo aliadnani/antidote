@@ -1,7 +1,6 @@
 use crossbeam::channel::{unbounded, Receiver, Sender};
-use linux_embedded_hal::gpio_cdev::{
-    Chip, EventRequestFlags, EventType, LineEventHandle, LineRequestFlags,
-};
+use gpiocdev::line::{Bias, EdgeDetection, EdgeKind};
+use gpiocdev::Request;
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -10,8 +9,10 @@ pub trait Input {
     fn poll_events(&self) -> Result<Vec<InputEvent>, InputError>;
 }
 
-
+// Hold threshold is 1.5 seconds
 const HOLD_THRESHOLD: Duration = Duration::from_millis(1500);
+
+// Mechanical switches bounce for up to ~10ms; edges inside this window are ignored.
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(20);
 
 pub struct InputGpioBacked {
@@ -19,31 +20,35 @@ pub struct InputGpioBacked {
 }
 
 impl InputGpioBacked {
-    pub fn new(chip_name: &str, input_line: u32) -> Result<Self, InputError> {
-        let mut chip = Chip::new(chip_name)?;
-        let input_line = chip.get_line(input_line)?;
-        let button_input_line = input_line.events(
-            LineRequestFlags::INPUT,
-            EventRequestFlags::BOTH_EDGES,
-            "button_input",
-        )?;
+    pub fn new(chip_path: &str, line_offset: u32) -> Result<Self, InputError> {
+        // The switch shorts the line to ground when pressed, so it is biased
+        // pull-up and active-low. Edge semantics are inverted by the kernel,
+        // so a press is reported as a rising edge.
+        let button_events = Request::builder()
+            .on_chip(chip_path)
+            .with_consumer("button_input")
+            .with_line(line_offset)
+            .with_bias(Bias::PullUp)
+            .as_active_low()
+            .with_edge_detection(EdgeDetection::BothEdges)
+            .request()?;
 
         let (event_sender, event_receiver) = unbounded();
         thread::Builder::new()
             .name("gpio_input".to_string())
-            .spawn(move || poll_gpio_events(button_input_line, event_sender))?;
+            .spawn(move || poll_gpio_events(button_events, event_sender))?;
 
         Ok(Self { event_receiver })
     }
 }
 
-fn poll_gpio_events(mut events: LineEventHandle, event_sender: Sender<InputEvent>) {
+fn poll_gpio_events(events: Request, event_sender: Sender<InputEvent>) {
     let mut press_started: Option<Instant> = None;
     let mut last_edge_at: Option<Instant> = None;
 
-    loop {
-        let event = match events.get_event() {
-            Ok(event) => event,
+    for edge in events.edge_events() {
+        let edge = match edge {
+            Ok(edge) => edge,
             Err(error) => {
                 tracing::error!(?error, "Failed to read GPIO line event");
                 return;
@@ -55,11 +60,11 @@ fn poll_gpio_events(mut events: LineEventHandle, event_sender: Sender<InputEvent
         }
         last_edge_at = Some(Instant::now());
 
-        match event.event_type() {
-            EventType::RisingEdge => {
+        match edge.kind {
+            EdgeKind::Rising => {
                 press_started = Some(Instant::now());
             }
-            EventType::FallingEdge => {
+            EdgeKind::Falling => {
                 let Some(declared_at) = press_started.take() else {
                     continue;
                 };
@@ -96,7 +101,7 @@ pub enum InputEvent {
 #[derive(Error, Debug)]
 pub enum InputError {
     #[error("GPIO error: {0}")]
-    Gpio(#[from] linux_embedded_hal::gpio_cdev::errors::Error),
+    Gpio(#[from] gpiocdev::Error),
     #[error("Failed to spawn GPIO input thread: {0}")]
     ThreadSpawn(#[from] std::io::Error),
     #[error("Unknown error: {message}")]
