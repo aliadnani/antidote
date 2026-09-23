@@ -25,7 +25,7 @@ pub mod state;
 pub mod tests;
 
 const AUDIO_CHANNELS: usize = 2;
-const BUFFER_SIZE: usize = 48;
+const BUFFER_SIZE: usize = 64;
 const QUEUE_CAPACITY: usize = BUFFER_SIZE * 4;
 const I32_FULL_SCALE: f32 = 2_147_483_648.0;
 
