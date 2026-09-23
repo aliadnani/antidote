@@ -2,5 +2,7 @@
     "files.watcherExclude": {
         "**/target/**": true
     },
-    "cmake.sourceDirectory": "/Users/aliimran/Repos/antidote/nam_core"
+    "cmake.sourceDirectory": "/Users/aliimran/Repos/antidote/nam_core",
+    "rust-analyzer.cargo.target": "aarch64-unknown-linux-gnu",
+    "rust-analyzer.cargo.allTargets": false
 }
