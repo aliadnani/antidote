@@ -1,12 +1,13 @@
 use crossbeam::{channel::Receiver, queue::ArrayQueue};
+use cxx::UniquePtr;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
 use std::thread;
-use tracing::{error, info};
+use tracing::error;
 
-use crate::{modeller::Modeller, AUDIO_CHANNELS};
+use crate::{modeller::Modeller, nam_ffi::NamA2Model, AUDIO_CHANNELS};
 
 pub struct AudioStats {
     input_drops: AtomicU64,
@@ -57,8 +58,9 @@ pub struct Audio<T: Modeller> {
 }
 
 pub enum AudioCommand {
-    // Hotswap model only for now - not sure if we need other commands but this abstraction is near free anyways.
-    HotSwapModel(String),
+    // Carries a model already loaded off the audio thread - installing it here is a cheap pointer swap.
+    // Do NOT load models on the audio thread, it causes xruns
+    InstallModel(UniquePtr<NamA2Model>),
 }
 
 impl<T: Modeller> Audio<T> {
@@ -83,26 +85,11 @@ impl<T: Modeller> Audio<T> {
 
     pub fn tick(&mut self) {
         while let Ok(audio_command) = self.command_channel.try_recv() {
-            /* TODO: Defer this async
-
-            Doing this here - block DSP which will cause underruns.
-            Our audio thread will gracefully handle underruns via pass-through, but still this is not ideal.
-            */
             match audio_command {
-                AudioCommand::HotSwapModel(model_path) => {
-                    info!(model_path = %model_path, "Unloading current NAM A2 model");
-                    self.modeller.unload_nam_a2_model();
-
-                    let load_result = self.modeller.load_nam_a2_model(&model_path);
-
-                    if load_result.is_err() {
-                        error!(
-                            "Failed to load NAM A2 model from path {}: {:?}",
-                            model_path, load_result
-                        )
-                    } else {
-                        info!(model_path = %model_path, "Loaded NAM A2 model");
-                    }
+                // Replaces the current model in place - no unload-first gap, and a failed load
+                // never reaches us so the current model keeps sounding.
+                AudioCommand::InstallModel(dsp) => {
+                    self.modeller.load_preloaded_nam_a2_model(dsp);
                 }
             }
         }
