@@ -84,6 +84,7 @@ impl Input for InputGpioBacked {
     }
 }
 
+#[derive(Debug)]
 pub enum InputEvent {
     // TODO: Left foot switch is not physically wired - re-enable once that changes
     // FootSwitchLeftTap,

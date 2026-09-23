@@ -4,7 +4,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{modeller::Modeller, AUDIO_CHANNELS};
 
@@ -90,16 +90,19 @@ impl<T: Modeller> Audio<T> {
             */
             match audio_command {
                 AudioCommand::HotSwapModel(model_path) => {
+                    info!(model_path = %model_path, "Unloading current NAM A2 model");
                     self.modeller.unload_nam_a2_model();
-                    self.modeller
-                        .load_nam_a2_model(&model_path)
-                        .inspect_err(|e| {
-                            error!(
-                                "Failed to load NAM A2 model from path {}: {:?}",
-                                model_path, e
-                            )
-                        })
-                        .ok();
+
+                    let load_result = self.modeller.load_nam_a2_model(&model_path);
+
+                    if load_result.is_err() {
+                        error!(
+                            "Failed to load NAM A2 model from path {}: {:?}",
+                            model_path, load_result
+                        )
+                    } else {
+                        info!(model_path = %model_path, "Loaded NAM A2 model");
+                    }
                 }
             }
         }

@@ -41,6 +41,8 @@ impl Modeller for NamA2ModelModeller {
 
         self.dsp = Some(dsp);
 
+        info!(model_path = %model_path, "Loaded NAM A2 model.");
+
         Ok(())
     }
 
@@ -51,6 +53,8 @@ impl Modeller for NamA2ModelModeller {
     // DSP field is mostly infallible - doesn't make sense to return a Result.
     fn unload_nam_a2_model(&mut self) {
         self.dsp = None;
+
+        info!("Unloaded NAM A2 model.");
     }
 
     fn process_block(&mut self, input: &[f32], output: &mut [f32]) -> Result<(), ModellerError> {

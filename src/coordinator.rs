@@ -1,6 +1,6 @@
 use crossbeam::channel::Sender;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::{
     audio::AudioCommand,
@@ -40,6 +40,8 @@ impl<I: Input> Coordinator<I> {
     }
 
     fn handle_event(&mut self, event: InputEvent) {
+        debug!(?event, "Coordinator received input event");
+
         match event {
             InputEvent::FootSwitchRightTap => self.swap_model(CycleDirection::Forward),
             InputEvent::FootSwitchRightHold => self.swap_model(CycleDirection::Backward),
