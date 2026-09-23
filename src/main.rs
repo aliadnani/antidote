@@ -9,7 +9,10 @@ use tracing::{info, warn};
 
 use crate::{
     audio::{Audio, AudioStats},
+    coordinator::Coordinator,
+    input::InputGpioBacked,
     modeller::Modeller,
+    state::State,
 };
 
 pub mod audio;
@@ -26,6 +29,11 @@ const BUFFER_SIZE: usize = 48;
 const QUEUE_CAPACITY: usize = BUFFER_SIZE * 4;
 const I32_FULL_SCALE: f32 = 2_147_483_648.0;
 
+const GPIO_CHIP: &str = "/dev/gpiochip1";
+const FOOT_SWITCH_RIGHT_LINE: u32 = 5;
+
+const NAM_MODELS_DIR: &str = "resources";
+
 fn main() {
     // Logging
     tracing_subscriber::fmt::init();
@@ -35,7 +43,10 @@ fn main() {
     let (inputs, outputs, audio_stats) = setup_shared_audio_state();
 
     // Set up inter-thread communication channel for audio commands
-    let (_, command_receiver) = crossbeam::channel::unbounded::<audio::AudioCommand>();
+    let (command_sender, command_receiver) = crossbeam::channel::unbounded::<audio::AudioCommand>();
+
+    // Set up input -> state -> audio command coordination
+    let coordinator_thread = setup_coordinator(command_sender);
 
     // Start
     let audio_thread = setup_nam_processing_with_default_model(
@@ -63,9 +74,32 @@ fn main() {
 
     // Exit and cleanup
     drop(audio_thread);
+    drop(coordinator_thread);
     drop(audio_stats_handle);
 
     info!("Exiting Antidote.");
+}
+
+fn setup_coordinator(
+    command_sender: crossbeam::channel::Sender<audio::AudioCommand>,
+) -> Option<std::thread::JoinHandle<()>> {
+    let input = InputGpioBacked::new(GPIO_CHIP, FOOT_SWITCH_RIGHT_LINE).ok();
+
+    let Some(input) = input else {
+        warn!("No GPIO input available - coordinator not started.");
+        return None;
+    };
+
+    let state = State::new(NAM_MODELS_DIR).ok();
+
+    let Some(state) = state else {
+        warn!("No NAM models found - coordinator not started.");
+        return None;
+    };
+
+    let coordinator = Coordinator::new(input, state, command_sender);
+
+    Some(std::thread::spawn(move || coordinator.run()))
 }
 
 fn setup_shared_audio_state() -> (

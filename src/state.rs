@@ -4,7 +4,7 @@ pub struct State {
 }
 
 impl State {
-    fn new(nam_models_dir: &str) -> Result<Self, String> {
+    pub fn new(nam_models_dir: &str) -> Result<Self, String> {
         let mut nam_models = Vec::new();
 
         for entry in std::fs::read_dir(nam_models_dir).map_err(|e| e.to_string())? {
@@ -27,6 +27,33 @@ impl State {
             nam_models,
             current_model_index: 0.into(),
         })
+    }
+
+    pub fn current_model(&self) -> Option<&ValidNamA2ModelPath> {
+        self.current_model_index
+            .and_then(|index| self.nam_models.get(index))
+    }
+
+    pub fn next_model(&mut self) -> Option<&ValidNamA2ModelPath> {
+        self.advance_model(1)
+    }
+
+    pub fn previous_model(&mut self) -> Option<&ValidNamA2ModelPath> {
+        self.advance_model(-1)
+    }
+
+    fn advance_model(&mut self, direction: isize) -> Option<&ValidNamA2ModelPath> {
+        let len = self.nam_models.len();
+
+        if len == 0 {
+            return None;
+        }
+
+        let current = self.current_model_index.take().unwrap_or(0) as isize;
+        let next = (current + direction).rem_euclid(len as isize) as usize;
+
+        self.current_model_index = Some(next);
+        self.nam_models.get(next)
     }
 }
 
