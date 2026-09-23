@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{
+    Stream,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 use crossbeam::queue::ArrayQueue;
 use tracing::{info, warn};
 
@@ -19,9 +22,7 @@ pub mod state;
 pub mod tests;
 
 const AUDIO_CHANNELS: usize = 2;
-const BUFFER_SIZE: usize = 256;
-// Queue capacity is measured in stereo frames and provides four callback periods
-// of headroom, rather than one period of interleaved scalar samples.
+const BUFFER_SIZE: usize = 48;
 const QUEUE_CAPACITY: usize = BUFFER_SIZE * 4;
 const I32_FULL_SCALE: f32 = 2_147_483_648.0;
 
@@ -30,19 +31,70 @@ fn main() {
     tracing_subscriber::fmt::init();
     info!("Starting Antidote.");
 
-    // Lock-free ringbuffers
+    // Set up shared audio state
+    let (inputs, outputs, audio_stats) = setup_shared_audio_state();
+
+    // Set up inter-thread communication channel for audio commands
+    let (_, command_receiver) = crossbeam::channel::unbounded::<audio::AudioCommand>();
+
+    // Start
+    let audio_thread = setup_nam_processing_with_default_model(
+        inputs.clone(),
+        outputs.clone(),
+        command_receiver,
+        audio_stats.clone(),
+        Some("resources/fender_brown.nam"),
+    );
+
+    // CPAL Audio
+    info!("Starting CPAL.");
+    let (device, config) = setup_cpal_device_and_config(Some("hw:CARD=sndi2s0,DEV=0"));
+
+    // Set up audio stats reporting thread
+    let audio_stats_handle = setup_audio_stats_reporting(audio_stats.clone());
+
+    // Run
+    let input_stream = build_input_stream(&device, &config, inputs, audio_stats.clone())
+        .expect("Failed to build input stream.");
+    let output_stream = build_output_stream(&device, &config, outputs, audio_stats.clone())
+        .expect("Failed to build output stream.");
+
+    run_audio(input_stream, output_stream);
+
+    // Exit and cleanup
+    drop(audio_thread);
+    drop(audio_stats_handle);
+
+    info!("Exiting Antidote.");
+}
+
+fn setup_shared_audio_state() -> (
+    Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+    Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+    Arc<AudioStats>,
+) {
     let inputs = Arc::new(ArrayQueue::<[f32; AUDIO_CHANNELS]>::new(QUEUE_CAPACITY));
     let outputs = Arc::new(ArrayQueue::<[f32; AUDIO_CHANNELS]>::new(QUEUE_CAPACITY));
     let audio_stats = Arc::new(AudioStats::new());
 
-    let (_command_sender, command_receiver) =
-        crossbeam::channel::unbounded::<audio::AudioCommand>();
+    (inputs, outputs, audio_stats)
+}
 
+fn setup_nam_processing_with_default_model(
+    inputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+    outputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+    command_receiver: crossbeam::channel::Receiver<audio::AudioCommand>,
+    audio_stats: Arc<AudioStats>,
+    default_model_path: Option<&str>,
+) -> std::thread::JoinHandle<()> {
     // NAM + Audio subsystem
     let mut modeller = modeller::NamA2ModelModeller::new();
-    modeller
-        .load_nam_a2_model("resources/fender_brown.nam")
-        .expect("Could not load NAM A2 model.");
+
+    if let Some(model_path) = default_model_path {
+        modeller
+            .load_nam_a2_model(model_path)
+            .expect("Could not load NAM A2 model.");
+    }
 
     let mut audio = Audio::new(
         inputs.clone(),
@@ -60,21 +112,25 @@ fn main() {
         }
     });
 
-    // CPAL Audio
-    info!("Starting CPAL.");
+    audio_thread
+}
+
+fn setup_cpal_device_and_config(target_device: Option<&str>) -> (cpal::Device, cpal::StreamConfig) {
     let host = cpal::default_host();
 
-    let wanted = "hw:CARD=sndi2s0,DEV=0";
-    let device = host
-        .devices()
-        .expect("Failed to enumerate audio devices.")
-        .find(|d| {
-            d.description()
-                .ok()
-                .and_then(|x| x.driver().map(str::to_owned))
-                == Some(wanted.into())
-        })
-        .expect("device not found");
+    let device = match target_device {
+        Some(device_name) => find_device_by_name(&host, device_name).or_else(|| {
+            warn!(
+                "Could not find device with name '{}', falling back to default input device.",
+                device_name
+            );
+            host.default_input_device()
+        }),
+
+        None => host.default_input_device()
+    };
+
+    let device = device.expect("Failed to find a suitable audio input/output device.");
 
     let config = cpal::StreamConfig {
         channels: AUDIO_CHANNELS as u16,
@@ -82,26 +138,30 @@ fn main() {
         buffer_size: cpal::BufferSize::Fixed(BUFFER_SIZE as u32),
     };
 
-    info!(
-        "Audio config: {:?} Hz, {:?} channels, buffer {:?}",
-        config.sample_rate, config.channels, config.buffer_size
-    );
+    (device, config)
+}
 
-    // Report queue errors periodically without touching the audio threads.
-    {
-        let audio_stats = audio_stats.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                audio_stats.report();
-            }
-        });
-    }
+fn find_device_by_name(host: &cpal::Host, device_name: &str) -> Option<cpal::Device> {
+    host.devices()
+        .expect("Failed to enumerate audio devices.")
+        .find(|d| {
+            d.description()
+                .ok()
+                .and_then(|x| x.driver().map(str::to_owned))
+                == Some(device_name.into())
+        })
+}
 
-    let input_stream = device.build_input_stream(
-        config,
+
+fn build_input_stream(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    inputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+    audio_stats: Arc<AudioStats>,
+) -> Result<Stream, cpal::Error> {
+    device.build_input_stream(
+        *config,
         {
-            let audio_stats = audio_stats.clone();
             move |data: &[i32], _info: &cpal::InputCallbackInfo| {
                 let mut frames = data.chunks_exact(AUDIO_CHANNELS);
                 for frame in &mut frames {
@@ -120,45 +180,51 @@ fn main() {
             warn!("Error in input stream: {:?}", error);
         },
         None, // None waits forever to initialize the stream
-    );
+    )
+}
 
-    info!(
-        "Default input device: {:?}, default output device: {:?}",
-        device, device
-    );
+fn build_output_stream(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    outputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
+    audio_stats: Arc<AudioStats>,
+) -> Result<Stream, cpal::Error> {
+    device.build_output_stream(
+        *config,
+        move |data: &mut [i32], _info: &cpal::OutputCallbackInfo| {
+            let mut frames = data.chunks_exact_mut(AUDIO_CHANNELS);
+            for frame in &mut frames {
+                let outputs = &outputs;
+                let sample = match outputs.pop() {
+                    Some([sample, ..]) => sample,
+                    None => {
+                        audio_stats.record_output_underrun();
+                        0.0
+                    }
+                };
+                let sample = (sample * I32_FULL_SCALE) as i32;
+                frame[0] = sample;
+                frame[1] = sample;
+            }
+        },
+        move |error| {
+            warn!("Error in output stream: {:?}", error);
+        },
+        // None for waiting forever to initialize the stream
+        None,
+    )
+}
 
-    info!("Supported audio config: {:?}", device);
+fn setup_audio_stats_reporting(audio_stats: Arc<AudioStats>) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            audio_stats.report();
+        }
+    })
+}
 
-    let output_stream = device
-        .build_output_stream(
-            config,
-            move |data: &mut [i32], _info: &cpal::OutputCallbackInfo| {
-                let mut frames = data.chunks_exact_mut(AUDIO_CHANNELS);
-                for frame in &mut frames {
-                    let sample = match outputs.pop() {
-                        Some([sample, ..]) => sample,
-                        None => {
-                            audio_stats.record_output_underrun();
-                            0.0
-                        }
-                    };
-                    let sample = (sample * I32_FULL_SCALE) as i32;
-                    frame[0] = sample;
-                    frame[1] = sample;
-                }
-            },
-            move |error| {
-                warn!("Error in output stream: {:?}", error);
-            },
-            // None for waiting forever to initialize the stream
-            None,
-        )
-        .expect("Failed to build output stream.");
-
-    // Run
-    let input_stream = input_stream.unwrap();
-    let output_stream = output_stream;
-
+fn run_audio(input_stream: cpal::Stream, output_stream: cpal::Stream) {
     input_stream.play().unwrap();
     output_stream.play().unwrap();
 
@@ -175,6 +241,4 @@ fn main() {
     // Cleanup
     drop(input_stream);
     drop(output_stream);
-    drop(audio_thread);
-    info!("Exiting Antidote.");
 }
