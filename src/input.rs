@@ -11,9 +11,7 @@ pub trait Input {
 
 // Hold threshold is 1.5 seconds
 const HOLD_THRESHOLD: Duration = Duration::from_millis(1500);
-
-// Mechanical switches bounce for up to ~10ms; edges inside this window are ignored.
-const DEBOUNCE_WINDOW: Duration = Duration::from_millis(20);
+const DEBOUNCE_WINDOW: Duration = Duration::from_millis(10);
 
 pub struct InputGpioBacked {
     event_receiver: Receiver<InputEvent>,
