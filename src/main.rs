@@ -135,7 +135,7 @@ fn setup_nam_processing_with_default_model(
         outputs.clone(),
         modeller,
         BUFFER_SIZE,
-        command_receiver, // Unused for now
+        command_receiver,
         audio_stats.clone(),
     );
 

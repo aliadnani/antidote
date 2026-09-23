@@ -5,6 +5,7 @@ use tracing::{debug, error, info};
 use crate::{
     audio::AudioCommand,
     input::{Input, InputEvent},
+    nam_ffi,
     state::State,
 };
 
@@ -62,9 +63,20 @@ impl<I: Input> Coordinator<I> {
         let model_path = model.as_str().to_string();
         info!(model_path = %model_path, "Hot swapping NAM A2 model");
 
-        if self.audio_command_sender.send(AudioCommand::HotSwapModel(model_path)).is_err() {
-            error!("Failed to send HotSwapModel command - audio command channel is closed");
-        }
+        // Loading the model is not instant - hence we do it on a separate thread
+        // Maybe can refactor it to use a dedicated thread pool later but for now is ok
+        let command_sender = self.audio_command_sender.clone();
+        std::thread::spawn(move || match nam_ffi::load_nam_a2_model_path(&model_path) {
+            Ok(dsp) => {
+                info!(model_path = %model_path, "Loaded NAM A2 model");
+                if command_sender.send(AudioCommand::InstallModel(dsp)).is_err() {
+                    error!("Failed to send InstallModel command - audio command channel is closed");
+                }
+            }
+            Err(error) => {
+                error!(model_path = %model_path, ?error, "Failed to load NAM A2 model");
+            }
+        });
     }
 }
 
