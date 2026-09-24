@@ -12,6 +12,7 @@ use crate::{
     coordinator::Coordinator,
     input::InputGpioBacked,
     modeller::Modeller,
+    preprocessor::PreProcessor,
     state::State,
 };
 
@@ -21,6 +22,7 @@ pub mod display;
 pub mod input;
 pub mod modeller;
 pub mod nam_ffi;
+pub mod preprocessor;
 pub mod state;
 pub mod tests;
 
@@ -130,6 +132,9 @@ fn setup_nam_processing_with_default_model(
             .expect("Could not load NAM A2 model.");
     }
 
+    // USB noise filter experiment
+    let preprocessor = PreProcessor::new();
+
     let mut audio = Audio::new(
         inputs.clone(),
         outputs.clone(),
@@ -137,6 +142,7 @@ fn setup_nam_processing_with_default_model(
         BUFFER_SIZE,
         command_receiver,
         audio_stats.clone(),
+        Some(preprocessor),
     );
 
     // Start a new thread to run audio processing loop
@@ -161,7 +167,7 @@ fn setup_cpal_device_and_config(target_device: Option<&str>) -> (cpal::Device, c
             host.default_input_device()
         }),
 
-        None => host.default_input_device()
+        None => host.default_input_device(),
     };
 
     let device = device.expect("Failed to find a suitable audio input/output device.");
@@ -185,7 +191,6 @@ fn find_device_by_name(host: &cpal::Host, device_name: &str) -> Option<cpal::Dev
                 == Some(device_name.into())
         })
 }
-
 
 fn build_input_stream(
     device: &cpal::Device,

@@ -7,7 +7,7 @@ use std::sync::{
 use std::thread;
 use tracing::error;
 
-use crate::{modeller::Modeller, nam_ffi::NamA2Model, AUDIO_CHANNELS};
+use crate::{modeller::Modeller, nam_ffi::NamA2Model, preprocessor::PreProcessor, AUDIO_CHANNELS};
 
 pub struct AudioStats {
     input_drops: AtomicU64,
@@ -53,6 +53,7 @@ pub struct Audio<T: Modeller> {
     input_buffer: Vec<f32>,
     output_buffer: Vec<f32>,
     modeller: T,
+    preprocessor: Option<PreProcessor>,
     command_channel: Receiver<AudioCommand>,
     stats: Arc<AudioStats>,
 }
@@ -71,11 +72,13 @@ impl<T: Modeller> Audio<T> {
         chunk_size: usize,
         command_channel: Receiver<AudioCommand>,
         stats: Arc<AudioStats>,
+        preprocessor: Option<PreProcessor>,
     ) -> Self {
         Audio {
             inputs,
             outputs,
             modeller,
+            preprocessor,
             command_channel,
             input_buffer: vec![0.0; chunk_size],
             output_buffer: vec![0.0; chunk_size],
@@ -124,6 +127,10 @@ impl<T: Modeller> Audio<T> {
             } else {
                 thread::park_timeout(PARK_DURATION);
             }
+        }
+
+        if let Some(preprocessor) = &mut self.preprocessor {
+            preprocessor.process_block(&mut self.input_buffer);
         }
 
         self.modeller
