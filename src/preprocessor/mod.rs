@@ -96,11 +96,9 @@ mod tests {
         }
 
         for (i, (&got, &want)) in output.iter().zip(TEST_EXPECTED.iter()).enumerate() {
-            let diff = (f64::from(got) - want).abs();
-            assert!(
-                diff < 1e-9,
-                "sample {i}: got {got}, want {want} (diff {diff})"
-            );
+            // The processor returns f32 samples; compare against the reference
+            // at the same precision instead of demanding f64 rounding accuracy.
+            assert_eq!(got, want as f32, "sample {i}");
         }
     }
 

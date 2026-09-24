@@ -1,5 +1,6 @@
 # Firmware/Software
 /target
+/build
 scratchpad.md
 
 # Hardware 
@@ -8,3 +9,4 @@ hardware/antidote-audio-board/fabrication-toolkit-options.json
 hardware/antidote-audio-board/production/
 hardware/antidote-audio-board/antidote-audio-board-backups/
 cross-sysroot/
+
