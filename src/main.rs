@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use crate::{
     audio::{Audio, AudioStats},
     coordinator::Coordinator,
-    input::InputGpioBacked,
+    input::PlatformInput,
     modeller::Modeller,
     preprocessor::PreProcessor,
     state::State,
@@ -85,7 +85,7 @@ fn main() {
 fn setup_coordinator(
     command_sender: crossbeam::channel::Sender<audio::AudioCommand>,
 ) -> Option<std::thread::JoinHandle<()>> {
-    let input = InputGpioBacked::new(GPIO_CHIP, FOOT_SWITCH_RIGHT_LINE).ok();
+    let input = PlatformInput::new(GPIO_CHIP, FOOT_SWITCH_RIGHT_LINE).ok();
 
     let Some(input) = input else {
         warn!("No GPIO input available - coordinator not started.");
