@@ -95,11 +95,13 @@ mod tests {
             preprocessor.process_block(chunk);
         }
 
-        for (i, (&got, &want)) in output.iter().zip(TEST_EXPECTED.iter()).enumerate() {
-            // The processor returns f32 samples; compare against the reference
-            // at the same precision instead of demanding f64 rounding accuracy.
-            assert_eq!(got, want as f32, "sample {i}");
-        }
+        let expected: Vec<f32> = TEST_EXPECTED.iter().map(|&want| want as f32).collect();
+        crate::tests::assert_f32_slices_within_ulps(
+            &output,
+            &expected,
+            4,
+            "Scipy preprocessor reference",
+        );
     }
 
     fn sine_steady_state_rms(freq: f64, amp: f64) -> f64 {

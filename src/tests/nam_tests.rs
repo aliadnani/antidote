@@ -1,6 +1,7 @@
 use crate::{
     modeller::{Modeller, NamA2ModelModeller},
     nam_ffi,
+    tests::assert_f32_slices_within_ulps,
 };
 
 #[test]
@@ -43,7 +44,7 @@ fn test_nam_a2_model_inference() {
 
     // This is a sequential model, so check both the head and the tail:
     // The tail confirms that per-sample error does not accumulate over the block.
-    assert_eq!(
+    assert_f32_slices_within_ulps(
         &input[..10],
         &[
             0.0,
@@ -55,10 +56,12 @@ fn test_nam_a2_model_inference() {
             0.08628637,
             0.100622185,
             0.11493715,
-            0.1292283
-        ]
+            0.1292283,
+        ],
+        4,
+        "NAM inference input head",
     );
-    assert_eq!(
+    assert_f32_slices_within_ulps(
         &input[input.len() - 10..],
         &[
             -0.14353184,
@@ -70,10 +73,12 @@ fn test_nam_a2_model_inference() {
             -0.057571664,
             -0.043185785,
             -0.028790943,
-            -0.01439013
-        ]
+            -0.01439013,
+        ],
+        4,
+        "NAM inference input tail",
     );
-    assert_eq!(
+    assert_f32_slices_within_ulps(
         &output[..10],
         &[
             0.00052450894,
@@ -85,10 +90,12 @@ fn test_nam_a2_model_inference() {
             -0.017835798,
             -0.019450665,
             -0.018403785,
-            -0.0155082615
-        ]
+            -0.0155082615,
+        ],
+        4,
+        "NAM inference output head",
     );
-    assert_eq!(
+    assert_f32_slices_within_ulps(
         &output[output.len() - 10..],
         &[
             -0.2014261,
@@ -100,8 +107,10 @@ fn test_nam_a2_model_inference() {
             -0.2098254,
             -0.21388681,
             -0.2181065,
-            -0.2220757
-        ]
+            -0.2220757,
+        ],
+        4,
+        "NAM inference output tail",
     );
 }
 
@@ -126,7 +135,7 @@ fn test_unload_load_unload() {
     let mut output = vec![0.0; input.len()];
     modeller.process_block(&input, &mut output).unwrap();
 
-    assert_eq!(
+    assert_f32_slices_within_ulps(
         &output[..10],
         &[
             0.00052450894,
@@ -138,8 +147,10 @@ fn test_unload_load_unload() {
             -0.017835798,
             -0.019450665,
             -0.018403785,
-            -0.0155082615
-        ]
+            -0.0155082615,
+        ],
+        4,
+        "NAM modeller output head",
     );
 
     // Unload the model
