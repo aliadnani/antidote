@@ -26,6 +26,18 @@ pub enum InputEvent {
     FootSwitchRightHold,
 }
 
+#[cfg(any(target_os = "linux", test))]
+const HOLD_THRESHOLD_NS: u64 = 1_500_000_000;
+
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn event_for_press_duration_ns(duration_ns: u64) -> InputEvent {
+    if duration_ns >= HOLD_THRESHOLD_NS {
+        InputEvent::FootSwitchRightHold
+    } else {
+        InputEvent::FootSwitchRightTap
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum InputError {
     #[cfg(target_os = "linux")]
@@ -35,4 +47,21 @@ pub enum InputError {
     ThreadSpawn(#[from] std::io::Error),
     #[error("Unknown error: {message}")]
     UnknownError { message: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InputEvent, event_for_press_duration_ns};
+
+    #[test]
+    fn classifies_taps_and_holds_at_the_hold_threshold() {
+        assert!(matches!(
+            event_for_press_duration_ns(1_499_999_999),
+            InputEvent::FootSwitchRightTap
+        ));
+        assert!(matches!(
+            event_for_press_duration_ns(1_500_000_000),
+            InputEvent::FootSwitchRightHold
+        ));
+    }
 }

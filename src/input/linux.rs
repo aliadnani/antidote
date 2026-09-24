@@ -1,14 +1,12 @@
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use gpiocdev::Request;
-use gpiocdev::line::{Bias, EdgeDetection, EdgeKind};
+use gpiocdev::line::{Bias, EdgeDetection, EdgeKind, EventClock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use super::{Input, InputError, InputEvent};
+use super::{Input, InputError, InputEvent, event_for_press_duration_ns};
 
-// Hold threshold is 1.5 seconds
-const HOLD_THRESHOLD: Duration = Duration::from_millis(1500);
-const DEBOUNCE_WINDOW: Duration = Duration::from_millis(10);
+const DEBOUNCE_PERIOD: Duration = Duration::from_millis(10);
 
 pub struct PlatformInput {
     event_receiver: Receiver<InputEvent>,
@@ -26,6 +24,8 @@ impl PlatformInput {
             .with_bias(Bias::PullUp)
             .as_active_low()
             .with_edge_detection(EdgeDetection::BothEdges)
+            .with_debounce_period(DEBOUNCE_PERIOD)
+            .with_event_clock(EventClock::Monotonic)
             .request()?;
 
         let (event_sender, event_receiver) = unbounded();
@@ -38,42 +38,50 @@ impl PlatformInput {
 }
 
 fn poll_gpio_events(events: Request, event_sender: Sender<InputEvent>) {
-    let mut press_started: Option<Instant> = None;
-    let mut last_edge_at: Option<Instant> = None;
+    let mut press_started_ns: Option<u64> = None;
+    let mut previous_line_seqno: Option<u32> = None;
 
     for edge in events.edge_events() {
         let edge = match edge {
             Ok(edge) => edge,
             Err(error) => {
                 tracing::error!(?error, "Failed to read GPIO line event");
-                return;
+                break;
             }
         };
 
-        if last_edge_at.is_some_and(|edge_at| edge_at.elapsed() < DEBOUNCE_WINDOW) {
-            continue;
-        }
-        last_edge_at = Some(Instant::now());
+        let sequence_gap = edge.line_seqno != 0
+            && previous_line_seqno
+                .is_some_and(|previous| edge.line_seqno != previous.wrapping_add(1));
 
-        match edge.kind {
-            EdgeKind::Rising => {
-                press_started = Some(Instant::now());
-            }
-            EdgeKind::Falling => {
-                let Some(declared_at) = press_started.take() else {
-                    continue;
-                };
+        if sequence_gap {
+            tracing::warn!(
+                previous_line_seqno = ?previous_line_seqno,
+                line_seqno = edge.line_seqno,
+                "GPIO edge events were dropped; resynchronizing button state"
+            );
+            press_started_ns = (edge.kind == EdgeKind::Rising).then_some(edge.timestamp_ns);
+        } else {
+            match edge.kind {
+                EdgeKind::Rising => press_started_ns = Some(edge.timestamp_ns),
+                EdgeKind::Falling => {
+                    let Some(press_started_ns) = press_started_ns.take() else {
+                        continue;
+                    };
 
-                let input_event = if declared_at.elapsed() >= HOLD_THRESHOLD {
-                    InputEvent::FootSwitchRightHold
-                } else {
-                    InputEvent::FootSwitchRightTap
-                };
-
-                if event_sender.send(input_event).is_err() {
-                    return;
+                    let duration_ns = edge.timestamp_ns.saturating_sub(press_started_ns);
+                    if event_sender
+                        .send(event_for_press_duration_ns(duration_ns))
+                        .is_err()
+                    {
+                        return;
+                    }
                 }
             }
+        }
+
+        if edge.line_seqno != 0 {
+            previous_line_seqno = Some(edge.line_seqno);
         }
     }
 }

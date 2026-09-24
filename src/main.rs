@@ -85,11 +85,12 @@ fn main() {
 fn setup_coordinator(
     command_sender: crossbeam::channel::Sender<audio::AudioCommand>,
 ) -> Option<std::thread::JoinHandle<()>> {
-    let input = PlatformInput::new(GPIO_CHIP, FOOT_SWITCH_RIGHT_LINE).ok();
-
-    let Some(input) = input else {
-        warn!("No GPIO input available - coordinator not started.");
-        return None;
+    let input = match PlatformInput::new(GPIO_CHIP, FOOT_SWITCH_RIGHT_LINE) {
+        Ok(input) => input,
+        Err(error) => {
+            warn!(?error, "No GPIO input available - coordinator not started.");
+            return None;
+        }
     };
 
     let state = State::new(NAM_MODELS_DIR).ok();
