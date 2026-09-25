@@ -1,13 +1,13 @@
 use crossbeam::{channel::Receiver, queue::ArrayQueue};
 use cxx::UniquePtr;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 use std::thread;
 use tracing::error;
 
-use crate::{modeller::Modeller, nam_ffi::NamA2Model, preprocessor::PreProcessor, AUDIO_CHANNELS};
+use crate::{AUDIO_CHANNELS, modeller::Modeller, nam_ffi::NamA2Model, preprocessor::PreProcessor};
 
 pub struct AudioStats {
     input_drops: AtomicU64,

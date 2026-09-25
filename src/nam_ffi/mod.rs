@@ -5,7 +5,6 @@ pub mod ffi {
 
         pub type NamA2Model;
 
-
         fn load_nam_a2_model_path(model_path_str: &str) -> Result<UniquePtr<NamA2Model>>;
 
         fn get_nam_a2_model_expected_sample_rate(model: &NamA2Model) -> f64;
