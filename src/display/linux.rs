@@ -10,7 +10,9 @@ use linux_embedded_hal::{
     I2cdev, SpidevBus,
     spidev::{SpiModeFlags, SpidevOptions},
 };
-use sh1106::{Builder, interface::I2cInterface, mode::GraphicsMode};
+use sh1106::{
+    Builder, displayrotation::DisplayRotation, interface::I2cInterface, mode::GraphicsMode,
+};
 use tracing::{error, warn};
 
 use super::Display;
@@ -37,6 +39,7 @@ impl PlatformDisplay {
             Ok(i2c) => {
                 let mut oled: Oled = Builder::new()
                     .with_i2c_addr(I2C_ADDRESS)
+                    .with_rotation(DisplayRotation::Rotate180)
                     .connect_i2c(i2c.reverse())
                     .into();
                 if let Err(error) = oled.init() {
@@ -94,15 +97,10 @@ impl Display for PlatformDisplay {
             let text_style = MonoTextStyle::new(&FONT_8X13, BinaryColor::On);
 
             oled.clear();
-            let title = "NAM PROFILE";
-            let title_x = (128 - title.chars().count() as i32 * 8) / 2;
-            let _ = Text::with_baseline(title, Point::new(title_x, 15), text_style, Baseline::Top)
-                .draw(&mut *oled);
-
             let text_width = profile_name.chars().count() as i32 * 8;
             let x = (128 - text_width) / 2;
             let _ =
-                Text::with_baseline(&profile_name, Point::new(x, 35), text_style, Baseline::Top)
+                Text::with_baseline(&profile_name, Point::new(x, 25), text_style, Baseline::Top)
                     .draw(&mut *oled);
 
             if let Err(error) = oled.flush() {
