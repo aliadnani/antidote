@@ -1,8 +1,12 @@
-<img src="./antidote.png" width="200" alt="antidote logo" />
+<img src="./images/antidote.png" width="200" alt="antidote logo" />
 
 Budget neural amp modelling on a Radxa Cubie A7Z.
 
 ---
+
+<img src="./images/enclosure.png" width="600" alt="enclosure" />
+
+[(sloppy demo video)](https://www.youtube.com/shorts/qqARMGN2HPs)
 
 The repository houses the hardware/firmware for a standalone neural amp modelling guitar pedal hosted on a Linux SBC. Written in Rust and FFIs into the [NAM A2 inference engine](https://github.com/sdatkinson/NeuralAmpModelerCore).
 
@@ -28,6 +32,8 @@ This repository contains:
   - A single footswitch
   - An I2C OLED display (SH1106)
   - A WS2812B LED strip
+
+<img src="./images/hardware.png" width="300" alt="hardware setup" />
 
 ## Firmware
 
