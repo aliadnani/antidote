@@ -6,7 +6,7 @@ use crate::{
 
 #[test]
 fn test_nam_a2_model_load() {
-    let dsp = nam_ffi::load_nam_a2_model_path("resources/fender_clean.nam")
+    let dsp = nam_ffi::load_nam_a2_model_path("resources/tests/fender_clean.nam")
         .expect("Could not load NAM A2 model.");
 
     let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(&dsp);
@@ -29,7 +29,7 @@ fn generate_sine_wave(frequency: f32, sample_rate: f32, duration_secs: f32) -> V
 
 #[test]
 fn test_nam_a2_model_inference() {
-    let mut dsp = nam_ffi::load_nam_a2_model_path("resources/fender_clean.nam")
+    let mut dsp = nam_ffi::load_nam_a2_model_path("resources/tests/fender_clean.nam")
         .expect("Could not load NAM A2 model.");
 
     let input: Vec<f32> = generate_sine_wave(110.0, 48000.0, 2.0);
@@ -128,7 +128,7 @@ fn test_unload_load_unload() {
 
     // Load the model
     modeller
-        .load_nam_a2_model("resources/fender_clean.nam")
+        .load_nam_a2_model("resources/tests/fender_clean.nam")
         .expect("Could not load NAM A2 model.");
 
     // Test loaded: should be processed; sine wave should be different
