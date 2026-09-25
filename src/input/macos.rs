@@ -10,7 +10,7 @@ impl PlatformInput {
 }
 
 impl Input for PlatformInput {
-    fn poll_events(&self) -> Result<Vec<InputEvent>, InputError> {
+    fn poll_events(&mut self) -> Result<Vec<InputEvent>, InputError> {
         Ok(Vec::new())
     }
 }

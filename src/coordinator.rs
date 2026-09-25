@@ -1,16 +1,13 @@
 use crossbeam::channel::Sender;
-use std::time::Duration;
 use tracing::{debug, error, info};
 
 use crate::{
     audio::AudioCommand,
     display::Display,
-    input::{Input, InputEvent},
+    input::{Input, InputEvent, POLL_INTERVAL},
     nam_ffi,
     state::State,
 };
-
-const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 pub struct Coordinator<I: Input, D: Display> {
     input: I,
