@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use super::{Input, InputError, InputEvent, event_for_press_duration_ns};
 
-const DEBOUNCE_PERIOD: Duration = Duration::from_millis(10);
+const DEBOUNCE_PERIOD: Duration = Duration::from_millis(20);
 
 pub struct PlatformInput {
     event_receiver: Receiver<InputEvent>,
