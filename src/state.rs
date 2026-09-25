@@ -34,6 +34,10 @@ impl State {
             .and_then(|index| self.nam_models.get(index))
     }
 
+    pub fn current_model_index(&self) -> Option<usize> {
+        self.current_model_index
+    }
+
     pub fn next_model(&mut self) -> Option<&ValidNamA2ModelPath> {
         self.advance_model(1)
     }
