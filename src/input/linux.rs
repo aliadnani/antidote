@@ -84,6 +84,7 @@ fn poll_gpio_events(events: Request, event_sender: Sender<InputEvent>) {
 struct ButtonDebouncer {
     press_started_ns: Option<u64>,
     candidate: Option<CandidateEdge>,
+    queued_candidate: Option<CandidateEdge>,
     previous_line_seqno: Option<u32>,
 }
 
@@ -104,48 +105,92 @@ impl ButtonDebouncer {
                 tracing::warn!(
                     previous_line_seqno = ?self.previous_line_seqno,
                     line_seqno,
-                    "GPIO edge events were dropped; resynchronizing button state"
+                    "GPIO edge events were dropped; invalidating pending transitions"
                 );
-                // Keep a confirmed press when the observed edge is its
-                // release; otherwise the sequence gap would discard a valid
-                // tap/hold before the release can be debounced.
-                if !(self.press_started_ns.is_some() && kind == EdgeKind::Falling) {
-                    self.press_started_ns = None;
-                }
+                // A gap makes pending transitions ambiguous, but it does not
+                // invalidate a press that was already confirmed. In
+                // particular, a repeated Rising edge must not lose a hold.
                 self.candidate = None;
+                self.queued_candidate = None;
             }
 
             self.previous_line_seqno = Some(line_seqno);
         }
 
-        // If an edge returns to the currently stable state, it cancels the
-        // pending transition instead of being mistaken for another press.
+        // If a release arrives before a pending press has settled, retain it
+        // as the next transition. This lets a short tap complete after the
+        // debounce window. A subsequent Rising edge cancels that pair as
+        // bounce back to the original state.
         let already_stable = matches!(
             (self.press_started_ns.is_some(), kind),
             (false, EdgeKind::Falling) | (true, EdgeKind::Rising)
         );
 
         if already_stable {
-            self.candidate = None;
+            if self.press_started_ns.is_none()
+                && self
+                    .candidate
+                    .as_ref()
+                    .is_some_and(|candidate| candidate.kind == EdgeKind::Rising)
+                && kind == EdgeKind::Falling
+            {
+                self.queued_candidate = Some(CandidateEdge {
+                    kind,
+                    timestamp_ns,
+                    received_at: now,
+                });
+            } else if self.queued_candidate.is_some()
+                && self.press_started_ns.is_none()
+                && kind == EdgeKind::Rising
+            {
+                self.queued_candidate = None;
+                self.candidate = Some(CandidateEdge {
+                    kind,
+                    timestamp_ns,
+                    received_at: now,
+                });
+            } else {
+                self.candidate = None;
+                self.queued_candidate = None;
+            }
+        } else if self
+            .candidate
+            .as_ref()
+            .is_some_and(|candidate| candidate.kind == kind)
+        {
+            // Duplicate edges do not restart the quiet-period timer or move
+            // the timestamp of the original transition.
         } else {
             self.candidate = Some(CandidateEdge {
                 kind,
                 timestamp_ns,
                 received_at: now,
             });
+            self.queued_candidate = None;
         }
     }
 
     fn time_until_settle(&self, now: Instant) -> Option<Duration> {
-        self.candidate.as_ref().map(|candidate| {
-            DEBOUNCE_WINDOW.saturating_sub(now.saturating_duration_since(candidate.received_at))
-        })
+        self.queued_candidate
+            .as_ref()
+            .or(self.candidate.as_ref())
+            .map(|candidate| {
+                DEBOUNCE_WINDOW.saturating_sub(now.saturating_duration_since(candidate.received_at))
+            })
     }
 
     fn settle(&mut self, now: Instant) -> Option<InputEvent> {
-        let candidate = self.candidate.as_ref()?;
+        let candidate = self.queued_candidate.as_ref().or(self.candidate.as_ref())?;
         if now.saturating_duration_since(candidate.received_at) < DEBOUNCE_WINDOW {
             return None;
+        }
+
+        if let Some(queued_candidate) = self.queued_candidate.take() {
+            let press_candidate = self.candidate.take()?;
+            let duration_ns = queued_candidate
+                .timestamp_ns
+                .saturating_sub(press_candidate.timestamp_ns);
+            return Some(event_for_press_duration_ns(duration_ns));
         }
 
         let candidate = self.candidate.take()?;
@@ -214,6 +259,29 @@ mod tests {
     }
 
     #[test]
+    fn press_and_release_before_settle_are_reported_as_a_tap() {
+        let start = Instant::now();
+        let mut debouncer = ButtonDebouncer::default();
+
+        debouncer.handle_edge(EdgeKind::Rising, 1_000_000_000, 1, start);
+        debouncer.handle_edge(
+            EdgeKind::Falling,
+            1_006_000_000,
+            2,
+            start + Duration::from_millis(6),
+        );
+
+        assert!(matches!(
+            debouncer.settle(start + Duration::from_millis(16)),
+            Some(InputEvent::FootSwitchRightTap)
+        ));
+        assert_eq!(
+            debouncer.time_until_settle(start + Duration::from_millis(16)),
+            None
+        );
+    }
+
+    #[test]
     fn sequence_gap_on_release_preserves_and_classifies_long_press() {
         let start = Instant::now();
         let mut debouncer = ButtonDebouncer::default();
@@ -236,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn sequence_gap_on_new_press_does_not_inherit_old_press_duration() {
+    fn sequence_gap_rising_edge_does_not_clear_a_confirmed_press() {
         let start = Instant::now();
         let mut debouncer = ButtonDebouncer::default();
 
@@ -245,25 +313,25 @@ mod tests {
 
         debouncer.handle_edge(
             EdgeKind::Rising,
-            2_000_000_000,
+            2_600_000_000,
             3,
-            start + Duration::from_secs(1),
+            start + Duration::from_millis(1_600),
         );
         assert!(
             debouncer
-                .settle(start + Duration::from_secs(1) + DEBOUNCE_WINDOW)
+                .settle(start + Duration::from_millis(1_600) + DEBOUNCE_WINDOW)
                 .is_none()
         );
 
         debouncer.handle_edge(
             EdgeKind::Falling,
-            2_100_000_000,
+            2_700_000_000,
             4,
-            start + Duration::from_secs(2),
+            start + Duration::from_millis(1_700),
         );
         assert!(matches!(
-            debouncer.settle(start + Duration::from_secs(2) + DEBOUNCE_WINDOW),
-            Some(InputEvent::FootSwitchRightTap)
+            debouncer.settle(start + Duration::from_millis(1_700) + DEBOUNCE_WINDOW),
+            Some(InputEvent::FootSwitchRightHold)
         ));
     }
 }
