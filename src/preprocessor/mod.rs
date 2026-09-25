@@ -1,5 +1,6 @@
 use coeffs::{HP_SECTIONS, LP_SECTIONS, NOTCH_SECTIONS};
 
+#[rustfmt::skip]
 mod coeffs;
 
 struct Biquad {
@@ -31,9 +32,7 @@ impl Biquad {
     }
 
     fn process(&mut self, x: f64) -> f64 {
-        let y = self.b0 * x
-            + self.b1 * self.x1
-            + self.b2 * self.x2
+        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
             - self.a1 * self.y1
             - self.a2 * self.y2;
         let y = if y.abs() < 1e-30 { 0.0 } else { y };
@@ -51,9 +50,8 @@ pub struct PreProcessor {
 
 impl PreProcessor {
     pub fn new() -> Self {
-        let mut biquads = Vec::with_capacity(
-            HP_SECTIONS.len() + NOTCH_SECTIONS.len() + LP_SECTIONS.len(),
-        );
+        let mut biquads =
+            Vec::with_capacity(HP_SECTIONS.len() + NOTCH_SECTIONS.len() + LP_SECTIONS.len());
 
         biquads.extend(HP_SECTIONS.map(Biquad::new));
         biquads.extend(NOTCH_SECTIONS.map(Biquad::new));
@@ -119,7 +117,10 @@ mod tests {
         preprocessor.process_block(&mut signal);
 
         let steady = &signal[n / 2..];
-        (steady.iter().map(|v| f64::from(*v) * f64::from(*v)).sum::<f64>()
+        (steady
+            .iter()
+            .map(|v| f64::from(*v) * f64::from(*v))
+            .sum::<f64>()
             / steady.len() as f64)
             .sqrt()
     }

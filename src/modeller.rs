@@ -80,9 +80,7 @@ pub struct PassThroughMetricsModeller;
 
 impl Modeller for PassThroughMetricsModeller {
     fn load_preloaded_nam_a2_model(&mut self, _dsp: UniquePtr<NamA2Model>) {
-        info!(
-            "PassThroughMetricsModeller: load_preloaded_nam_a2_model called."
-        );
+        info!("PassThroughMetricsModeller: load_preloaded_nam_a2_model called.");
     }
 
     fn load_nam_a2_model(&mut self, model_path: &str) -> Result<(), ModellerError> {
