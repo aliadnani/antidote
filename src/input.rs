@@ -3,6 +3,8 @@ use std::time::Instant;
 use thiserror::Error;
 
 pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(20);
+#[cfg(any(target_os = "linux", test))]
+const HOLD_THRESHOLD: Duration = Duration::from_millis(650);
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -31,23 +33,12 @@ pub enum InputEvent {
 }
 
 #[cfg(any(target_os = "linux", test))]
-const HOLD_THRESHOLD_NS: u64 = 650_000_000;
-
-#[cfg(any(target_os = "linux", test))]
-pub(crate) fn event_for_press_duration_ns(duration_ns: u64) -> InputEvent {
-    if duration_ns >= HOLD_THRESHOLD_NS {
-        InputEvent::FootSwitchRightHold
-    } else {
-        InputEvent::FootSwitchRightTap
-    }
-}
-
-#[cfg(any(target_os = "linux", test))]
 #[derive(Default)]
 struct ButtonPoller {
     pressed_since: Option<Instant>,
     released_since: Option<Instant>,
     press_confirmed: bool,
+    hold_sent: bool,
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -55,15 +46,15 @@ impl ButtonPoller {
     fn sample(&mut self, is_pressed: bool, now: Instant) -> Option<InputEvent> {
         if is_pressed {
             self.released_since = None;
-            match self.pressed_since {
-                Some(pressed_since)
-                    if !self.press_confirmed
-                        && now.saturating_duration_since(pressed_since) >= POLL_INTERVAL =>
-                {
-                    self.press_confirmed = true;
-                }
-                None => self.pressed_since = Some(now),
-                _ => {}
+            let pressed_since = *self.pressed_since.get_or_insert(now);
+            let pressed_for = now.saturating_duration_since(pressed_since);
+
+            if !self.press_confirmed && pressed_for >= POLL_INTERVAL {
+                self.press_confirmed = true;
+            }
+            if self.press_confirmed && !self.hold_sent && pressed_for >= HOLD_THRESHOLD {
+                self.hold_sent = true;
+                return Some(InputEvent::FootSwitchRightHold);
             }
             return None;
         }
@@ -71,6 +62,7 @@ impl ButtonPoller {
         if !self.press_confirmed {
             self.pressed_since = None;
             self.released_since = None;
+            self.hold_sent = false;
             return None;
         }
 
@@ -82,13 +74,15 @@ impl ButtonPoller {
             return None;
         }
 
-        let pressed_since = self.pressed_since.take()?;
+        self.pressed_since = None;
         self.released_since = None;
         self.press_confirmed = false;
-        let duration_ns = released_since
-            .saturating_duration_since(pressed_since)
-            .as_nanos() as u64;
-        Some(event_for_press_duration_ns(duration_ns))
+        if self.hold_sent {
+            self.hold_sent = false;
+            None
+        } else {
+            Some(InputEvent::FootSwitchRightTap)
+        }
     }
 }
 
@@ -105,19 +99,7 @@ pub enum InputError {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{ButtonPoller, InputEvent, POLL_INTERVAL, event_for_press_duration_ns};
-
-    #[test]
-    fn classifies_taps_and_holds_at_the_hold_threshold() {
-        assert!(matches!(
-            event_for_press_duration_ns(649_999_999),
-            InputEvent::FootSwitchRightTap
-        ));
-        assert!(matches!(
-            event_for_press_duration_ns(650_000_000),
-            InputEvent::FootSwitchRightHold
-        ));
-    }
+    use super::{ButtonPoller, HOLD_THRESHOLD, InputEvent, POLL_INTERVAL};
 
     #[test]
     fn requires_two_pressed_samples_and_two_released_samples() {
@@ -148,16 +130,32 @@ mod tests {
     }
 
     #[test]
-    fn classifies_press_longer_than_six_hundred_fifty_milliseconds_as_hold() {
+    fn emits_hold_when_threshold_passes_and_does_not_repeat_on_release() {
         let start = Instant::now();
         let mut poller = ButtonPoller::default();
         assert!(poller.sample(true, start).is_none());
         assert!(poller.sample(true, start + POLL_INTERVAL).is_none());
-        let release_at = start + Duration::from_millis(660);
-        assert!(poller.sample(false, release_at).is_none());
+
+        let threshold_sample = start + HOLD_THRESHOLD;
         assert!(matches!(
-            poller.sample(false, release_at + POLL_INTERVAL),
+            poller.sample(true, threshold_sample),
             Some(InputEvent::FootSwitchRightHold)
         ));
+        assert!(
+            poller
+                .sample(true, threshold_sample + POLL_INTERVAL)
+                .is_none()
+        );
+
+        assert!(
+            poller
+                .sample(false, threshold_sample + POLL_INTERVAL * 2)
+                .is_none()
+        );
+        assert!(
+            poller
+                .sample(false, threshold_sample + POLL_INTERVAL * 3)
+                .is_none()
+        );
     }
 }
