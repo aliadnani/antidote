@@ -31,7 +31,7 @@ pub enum InputEvent {
 }
 
 #[cfg(any(target_os = "linux", test))]
-const HOLD_THRESHOLD_NS: u64 = 1_200_000_000;
+const HOLD_THRESHOLD_NS: u64 = 650_000_000;
 
 #[cfg(any(target_os = "linux", test))]
 pub(crate) fn event_for_press_duration_ns(duration_ns: u64) -> InputEvent {
@@ -110,11 +110,11 @@ mod tests {
     #[test]
     fn classifies_taps_and_holds_at_the_hold_threshold() {
         assert!(matches!(
-            event_for_press_duration_ns(1_199_999_999),
+            event_for_press_duration_ns(649_999_999),
             InputEvent::FootSwitchRightTap
         ));
         assert!(matches!(
-            event_for_press_duration_ns(1_200_000_000),
+            event_for_press_duration_ns(650_000_000),
             InputEvent::FootSwitchRightHold
         ));
     }
@@ -148,12 +148,12 @@ mod tests {
     }
 
     #[test]
-    fn classifies_press_longer_than_twelve_hundred_milliseconds_as_hold() {
+    fn classifies_press_longer_than_six_hundred_fifty_milliseconds_as_hold() {
         let start = Instant::now();
         let mut poller = ButtonPoller::default();
         assert!(poller.sample(true, start).is_none());
         assert!(poller.sample(true, start + POLL_INTERVAL).is_none());
-        let release_at = start + Duration::from_millis(1_220);
+        let release_at = start + Duration::from_millis(660);
         assert!(poller.sample(false, release_at).is_none());
         assert!(matches!(
             poller.sample(false, release_at + POLL_INTERVAL),
