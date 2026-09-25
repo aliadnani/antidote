@@ -15,7 +15,6 @@ This repository contains:
 
 **Please see this repository as more of a reference design for what's possible and how such a pedal could be built, rather than a polished product.**
 
-
 ## Hardware setup
 
 1. Source a Radxa Cubie A7Z
@@ -62,8 +61,21 @@ sudo amixer -c 0 cset name='ADC1 Digital Capture Volume' 161
 sudo amixer -c 0 cset name='IN1 Source Mux' 'Analog'
 sudo amixer -c 0 cset name='IN2 Source Mux' 'Analog'
 ```
-6. Run the firmware (**in release mode!**). you should get logs that look like:
-```
+6. Compile and run the firmware (**in release mode!**). Pass in the directory filled with `.nam` files as an arguement. e.g
+```bash
+> cargo build --release
+> ./target/release/antidote /path/to/nam/files
+# Or:
+> cargo run --release -- /path/to/nam/files
+...
+2026-09-25T16:57:33.860341Z  INFO antidote: Starting Antidote.
+2026-09-25T16:57:33.880659Z  INFO antidote::modeller: Loaded NAM A2 model. model_path=resources/fender_brown.nam
+2026-09-25T16:57:33.880875Z  INFO antidote: Starting CPAL.
+2026-09-25T16:57:33.989547Z  INFO antidote: Playing back audio for 500 seconds.
+2026-09-25T16:57:34.898597Z  INFO antidote::audio: Audio errors input_drops=0 output_drops=0 output_underruns=320
+2026-09-25T16:57:35.898842Z  INFO antidote::audio: Audio errors input_drops=0 output_drops=0 output_underruns=320
+2026-09-25T16:57:36.899102Z  INFO antidote::audio: Audio errors input_drops=0 output_drops=0 output_underruns=320
+...
 ...
 ```
 
@@ -81,7 +93,7 @@ Once everything is working, some things you can do to make the pedal more usable
 
 ## Some design goals/notes:
 
-In principle, this project actually builds an entire hardware platform for *any* real-time guitar processing application for Linux SBCs. You can just as easily swap out the the firmware for another that runs say LV2/VST plugins. But I'm only really interested in a standalone NAM medal pedal.
+In principle, this project actually builds an entire hardware platform for *any* real-time guitar processing application for Linux SBCs. You can just as easily swap out the the firmware for another that runs say LV2/VST plugins. Though the main focus is on a standalone NAM pedal.
 
 
 ---
