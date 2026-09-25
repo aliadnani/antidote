@@ -4,7 +4,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(nam_models_dir: &str) -> Result<Self, String> {
+    pub fn new(nam_models_dir: impl AsRef<std::path::Path>) -> Result<Self, String> {
         let mut nam_models = Vec::new();
 
         for entry in std::fs::read_dir(nam_models_dir).map_err(|e| e.to_string())? {

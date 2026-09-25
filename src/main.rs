@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use cpal::{
     Stream,
@@ -42,6 +42,27 @@ fn main() {
     tracing_subscriber::fmt::init();
     info!("Starting Antidote.");
 
+    let nam_models_dir = match nam_models_dir_from_args() {
+        Ok(dir) => dir,
+        Err(usage) => {
+            eprintln!("{usage}");
+            return;
+        }
+    };
+
+    let state = match State::new(&nam_models_dir) {
+        Ok(state) => state,
+        Err(error) => {
+            warn!(?error, path = %nam_models_dir.display(), "Failed to load NAM profiles");
+            return;
+        }
+    };
+    let Some(initial_model_path) = state.current_model().map(|model| model.as_str().to_owned())
+    else {
+        warn!("No NAM profiles available");
+        return;
+    };
+
     // Set up shared audio state
     let (inputs, outputs, audio_stats) = setup_shared_audio_state();
 
@@ -49,7 +70,7 @@ fn main() {
     let (command_sender, command_receiver) = crossbeam::channel::unbounded::<audio::AudioCommand>();
 
     // Set up input -> state -> audio command coordination
-    let coordinator_thread = setup_coordinator(command_sender);
+    let coordinator_thread = setup_coordinator(command_sender, state);
 
     // Start
     let audio_thread = setup_nam_processing_with_default_model(
@@ -57,7 +78,7 @@ fn main() {
         outputs.clone(),
         command_receiver,
         audio_stats.clone(),
-        Some("resources/fender_brown.nam"),
+        Some(&initial_model_path),
     );
 
     // CPAL Audio
@@ -83,8 +104,27 @@ fn main() {
     info!("Exiting Antidote.");
 }
 
+fn nam_models_dir_from_args() -> Result<PathBuf, String> {
+    let mut args = std::env::args_os();
+    let program = args.next().unwrap_or_default();
+    let nam_models_dir = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(NAM_MODELS_DIR));
+
+    if args.next().is_some() {
+        return Err(format!(
+            "Usage: {} [PROFILES_DIR]",
+            program.to_string_lossy()
+        ));
+    }
+
+    Ok(nam_models_dir)
+}
+
 fn setup_coordinator(
     command_sender: crossbeam::channel::Sender<audio::AudioCommand>,
+    state: State,
 ) -> Option<std::thread::JoinHandle<()>> {
     let input = match PlatformInput::new(GPIO_CHIP, FOOT_SWITCH_RIGHT_LINE) {
         Ok(input) => input,
@@ -92,13 +132,6 @@ fn setup_coordinator(
             warn!(?error, "No GPIO input available - coordinator not started.");
             return None;
         }
-    };
-
-    let state = State::new(NAM_MODELS_DIR).ok();
-
-    let Some(state) = state else {
-        warn!("No NAM models found - coordinator not started.");
-        return None;
     };
 
     let display = PlatformDisplay::new();
@@ -269,18 +302,4 @@ fn setup_audio_stats_reporting(audio_stats: Arc<AudioStats>) -> std::thread::Joi
 fn run_audio(input_stream: cpal::Stream, output_stream: cpal::Stream) {
     input_stream.play().unwrap();
     output_stream.play().unwrap();
-
-    // Let the audio run for a while
-    let playback_duration = std::time::Duration::from_secs(50);
-    info!(
-        "Playing back audio for {} seconds.",
-        playback_duration.as_secs()
-    );
-    std::thread::sleep(playback_duration);
-
-    info!("Stopping audio playback.");
-
-    // Cleanup
-    drop(input_stream);
-    drop(output_stream);
 }

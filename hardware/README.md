@@ -34,7 +34,7 @@ speaker-test -D hw:0,0 -c 2 -r 48000 -F S32_LE -t sine -f 440
 ```
 
 **To record audio (+generate spectrogram and log metrics):**
-```
+```bash
 sudo amixer -c 0 cset name='ADC1 Config' 'Single-ended'
 sudo amixer -c 0 cset name='ADC1 Common-mode Tolerance' 'AC Coupled with 100mVpp'
 sudo amixer -c 0 cset name='ADC1 Full-Scale' '2/10-VRMS'
