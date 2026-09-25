@@ -10,6 +10,7 @@ use tracing::{info, warn};
 use crate::{
     audio::{Audio, AudioStats},
     coordinator::Coordinator,
+    display::PlatformDisplay,
     input::PlatformInput,
     modeller::Modeller,
     preprocessor::PreProcessor,
@@ -100,7 +101,8 @@ fn setup_coordinator(
         return None;
     };
 
-    let coordinator = Coordinator::new(input, state, command_sender);
+    let display = PlatformDisplay::new();
+    let coordinator = Coordinator::new(input, state, command_sender, display);
 
     Some(std::thread::spawn(move || coordinator.run()))
 }
