@@ -2,11 +2,12 @@ use crossbeam::channel::{Receiver, Sender, unbounded};
 use gpiocdev::Request;
 use gpiocdev::line::{Bias, EdgeDetection, EdgeKind, EventClock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{Input, InputError, InputEvent, event_for_press_duration_ns};
 
-const DEBOUNCE_PERIOD: Duration = Duration::from_millis(20);
+// Accept an edge only after the input has stayed quiet for this long.
+const DEBOUNCE_WINDOW: Duration = Duration::from_millis(10);
 
 pub struct PlatformInput {
     event_receiver: Receiver<InputEvent>,
@@ -24,7 +25,6 @@ impl PlatformInput {
             .with_bias(Bias::PullUp)
             .as_active_low()
             .with_edge_detection(EdgeDetection::BothEdges)
-            .with_debounce_period(DEBOUNCE_PERIOD)
             .with_event_clock(EventClock::Monotonic)
             .request()?;
 
@@ -38,51 +38,219 @@ impl PlatformInput {
 }
 
 fn poll_gpio_events(events: Request, event_sender: Sender<InputEvent>) {
-    let mut press_started_ns: Option<u64> = None;
-    let mut previous_line_seqno: Option<u32> = None;
+    let mut debouncer = ButtonDebouncer::default();
 
-    for edge in events.edge_events() {
-        let edge = match edge {
-            Ok(edge) => edge,
-            Err(error) => {
-                tracing::error!(?error, "Failed to read GPIO line event");
-                break;
-            }
+    loop {
+        let edge = match debouncer.time_until_settle(Instant::now()) {
+            Some(timeout) => match events.wait_edge_event(timeout) {
+                Ok(true) => match events.read_edge_event() {
+                    Ok(edge) => Some(edge),
+                    Err(error) => {
+                        tracing::error!(?error, "Failed to read GPIO line event");
+                        break;
+                    }
+                },
+                Ok(false) => None,
+                Err(error) => {
+                    tracing::error!(?error, "Failed waiting for GPIO line event");
+                    break;
+                }
+            },
+            None => match events.read_edge_event() {
+                Ok(edge) => Some(edge),
+                Err(error) => {
+                    tracing::error!(?error, "Failed to read GPIO line event");
+                    break;
+                }
+            },
         };
 
-        let sequence_gap = edge.line_seqno != 0
-            && previous_line_seqno
-                .is_some_and(|previous| edge.line_seqno != previous.wrapping_add(1));
-
-        if sequence_gap {
-            tracing::warn!(
-                previous_line_seqno = ?previous_line_seqno,
-                line_seqno = edge.line_seqno,
-                "GPIO edge events were dropped; resynchronizing button state"
+        if let Some(edge) = edge {
+            debouncer.handle_edge(
+                edge.kind,
+                edge.timestamp_ns,
+                edge.line_seqno,
+                Instant::now(),
             );
-            press_started_ns = (edge.kind == EdgeKind::Rising).then_some(edge.timestamp_ns);
-        } else {
-            match edge.kind {
-                EdgeKind::Rising => press_started_ns = Some(edge.timestamp_ns),
-                EdgeKind::Falling => {
-                    let Some(press_started_ns) = press_started_ns.take() else {
-                        continue;
-                    };
+        } else if let Some(input_event) = debouncer.settle(Instant::now())
+            && event_sender.send(input_event).is_err()
+        {
+            return;
+        }
+    }
+}
 
-                    let duration_ns = edge.timestamp_ns.saturating_sub(press_started_ns);
-                    if event_sender
-                        .send(event_for_press_duration_ns(duration_ns))
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
+#[derive(Default)]
+struct ButtonDebouncer {
+    press_started_ns: Option<u64>,
+    candidate: Option<CandidateEdge>,
+    previous_line_seqno: Option<u32>,
+}
+
+struct CandidateEdge {
+    kind: EdgeKind,
+    timestamp_ns: u64,
+    received_at: Instant,
+}
+
+impl ButtonDebouncer {
+    fn handle_edge(&mut self, kind: EdgeKind, timestamp_ns: u64, line_seqno: u32, now: Instant) {
+        if line_seqno != 0 {
+            let sequence_gap = self
+                .previous_line_seqno
+                .is_some_and(|previous| line_seqno != previous.wrapping_add(1));
+
+            if sequence_gap {
+                tracing::warn!(
+                    previous_line_seqno = ?self.previous_line_seqno,
+                    line_seqno,
+                    "GPIO edge events were dropped; resynchronizing button state"
+                );
+                self.press_started_ns = None;
+                self.candidate = None;
+            }
+
+            self.previous_line_seqno = Some(line_seqno);
+        }
+
+        // If an edge returns to the currently stable state, it cancels the
+        // pending transition instead of being mistaken for another press.
+        let already_stable = matches!(
+            (self.press_started_ns.is_some(), kind),
+            (false, EdgeKind::Falling) | (true, EdgeKind::Rising)
+        );
+
+        if already_stable {
+            self.candidate = None;
+        } else {
+            self.candidate = Some(CandidateEdge {
+                kind,
+                timestamp_ns,
+                received_at: now,
+            });
+        }
+    }
+
+    fn time_until_settle(&self, now: Instant) -> Option<Duration> {
+        self.candidate.as_ref().map(|candidate| {
+            DEBOUNCE_WINDOW.saturating_sub(now.saturating_duration_since(candidate.received_at))
+        })
+    }
+
+    fn settle(&mut self, now: Instant) -> Option<InputEvent> {
+        let candidate = self.candidate.as_ref()?;
+        if now.saturating_duration_since(candidate.received_at) < DEBOUNCE_WINDOW {
+            return None;
+        }
+
+        let candidate = self.candidate.take()?;
+        match candidate.kind {
+            EdgeKind::Rising => {
+                self.press_started_ns = Some(candidate.timestamp_ns);
+                None
+            }
+            EdgeKind::Falling => {
+                let press_started_ns = self.press_started_ns.take()?;
+                let duration_ns = candidate.timestamp_ns.saturating_sub(press_started_ns);
+                Some(event_for_press_duration_ns(duration_ns))
             }
         }
+    }
+}
 
-        if edge.line_seqno != 0 {
-            previous_line_seqno = Some(edge.line_seqno);
-        }
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use gpiocdev::line::EdgeKind;
+
+    use super::{ButtonDebouncer, DEBOUNCE_WINDOW};
+    use crate::input::InputEvent;
+
+    #[test]
+    fn bounce_back_to_stable_state_cancels_candidate() {
+        let start = Instant::now();
+        let mut debouncer = ButtonDebouncer::default();
+
+        debouncer.handle_edge(EdgeKind::Rising, 1_000_000_000, 1, start);
+        debouncer.handle_edge(
+            EdgeKind::Falling,
+            1_005_000_000,
+            2,
+            start + Duration::from_millis(5),
+        );
+        assert_eq!(
+            debouncer.time_until_settle(start + Duration::from_millis(5)),
+            None
+        );
+
+        debouncer.handle_edge(
+            EdgeKind::Rising,
+            1_008_000_000,
+            3,
+            start + Duration::from_millis(8),
+        );
+        assert!(
+            debouncer
+                .settle(start + Duration::from_millis(8) + DEBOUNCE_WINDOW)
+                .is_none()
+        );
+
+        debouncer.handle_edge(
+            EdgeKind::Falling,
+            2_008_000_000,
+            4,
+            start + Duration::from_secs(1),
+        );
+        assert!(matches!(
+            debouncer.settle(start + Duration::from_secs(1) + DEBOUNCE_WINDOW),
+            Some(InputEvent::FootSwitchRightTap)
+        ));
+    }
+
+    #[test]
+    fn sequence_gap_resets_pressed_state_and_does_not_stick() {
+        let start = Instant::now();
+        let mut debouncer = ButtonDebouncer::default();
+
+        debouncer.handle_edge(EdgeKind::Rising, 1_000_000_000, 1, start);
+        assert!(debouncer.settle(start + DEBOUNCE_WINDOW).is_none());
+
+        // A missing edge makes the current press duration unknowable; reset,
+        // then require a complete, debounced press/release before emitting.
+        debouncer.handle_edge(
+            EdgeKind::Falling,
+            2_000_000_000,
+            3,
+            start + Duration::from_secs(1),
+        );
+        assert!(
+            debouncer
+                .settle(start + Duration::from_secs(1) + DEBOUNCE_WINDOW)
+                .is_none()
+        );
+
+        debouncer.handle_edge(
+            EdgeKind::Rising,
+            3_000_000_000,
+            4,
+            start + Duration::from_secs(2),
+        );
+        assert!(
+            debouncer
+                .settle(start + Duration::from_secs(2) + DEBOUNCE_WINDOW)
+                .is_none()
+        );
+        debouncer.handle_edge(
+            EdgeKind::Falling,
+            3_100_000_000,
+            5,
+            start + Duration::from_secs(3),
+        );
+        assert!(matches!(
+            debouncer.settle(start + Duration::from_secs(3) + DEBOUNCE_WINDOW),
+            Some(InputEvent::FootSwitchRightTap)
+        ));
     }
 }
 
