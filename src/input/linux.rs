@@ -17,6 +17,7 @@ impl PlatformInput {
             .on_chip(chip_path)
             .with_consumer("button_input")
             .with_line(line_offset)
+            .as_input()
             .with_bias(Bias::PullUp)
             .as_active_low()
             .request()?;
