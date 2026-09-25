@@ -106,7 +106,12 @@ impl ButtonDebouncer {
                     line_seqno,
                     "GPIO edge events were dropped; resynchronizing button state"
                 );
-                self.press_started_ns = None;
+                // Keep a confirmed press when the observed edge is its
+                // release; otherwise the sequence gap would discard a valid
+                // tap/hold before the release can be debounced.
+                if !(self.press_started_ns.is_some() && kind == EdgeKind::Falling) {
+                    self.press_started_ns = None;
+                }
                 self.candidate = None;
             }
 
@@ -209,17 +214,37 @@ mod tests {
     }
 
     #[test]
-    fn sequence_gap_resets_pressed_state_and_does_not_stick() {
+    fn sequence_gap_on_release_preserves_and_classifies_long_press() {
         let start = Instant::now();
         let mut debouncer = ButtonDebouncer::default();
 
         debouncer.handle_edge(EdgeKind::Rising, 1_000_000_000, 1, start);
         assert!(debouncer.settle(start + DEBOUNCE_WINDOW).is_none());
 
-        // A missing edge makes the current press duration unknowable; reset,
-        // then require a complete, debounced press/release before emitting.
+        // The missing edge may be switch bounce. Preserve the confirmed press
+        // if the next observed edge is its release.
         debouncer.handle_edge(
             EdgeKind::Falling,
+            2_600_000_000,
+            3,
+            start + Duration::from_millis(1_600),
+        );
+        assert!(matches!(
+            debouncer.settle(start + Duration::from_millis(1_600) + DEBOUNCE_WINDOW),
+            Some(InputEvent::FootSwitchRightHold)
+        ));
+    }
+
+    #[test]
+    fn sequence_gap_on_new_press_does_not_inherit_old_press_duration() {
+        let start = Instant::now();
+        let mut debouncer = ButtonDebouncer::default();
+
+        debouncer.handle_edge(EdgeKind::Rising, 1_000_000_000, 1, start);
+        assert!(debouncer.settle(start + DEBOUNCE_WINDOW).is_none());
+
+        debouncer.handle_edge(
+            EdgeKind::Rising,
             2_000_000_000,
             3,
             start + Duration::from_secs(1),
@@ -231,24 +256,13 @@ mod tests {
         );
 
         debouncer.handle_edge(
-            EdgeKind::Rising,
-            3_000_000_000,
+            EdgeKind::Falling,
+            2_100_000_000,
             4,
             start + Duration::from_secs(2),
         );
-        assert!(
-            debouncer
-                .settle(start + Duration::from_secs(2) + DEBOUNCE_WINDOW)
-                .is_none()
-        );
-        debouncer.handle_edge(
-            EdgeKind::Falling,
-            3_100_000_000,
-            5,
-            start + Duration::from_secs(3),
-        );
         assert!(matches!(
-            debouncer.settle(start + Duration::from_secs(3) + DEBOUNCE_WINDOW),
+            debouncer.settle(start + Duration::from_secs(2) + DEBOUNCE_WINDOW),
             Some(InputEvent::FootSwitchRightTap)
         ));
     }
