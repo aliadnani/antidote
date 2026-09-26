@@ -101,7 +101,7 @@ fn main() {
     let output_stream = build_output_stream(&device, &config, outputs, audio_stats.clone())
         .expect("Failed to build output stream.");
 
-    run_audio(input_stream, output_stream);
+    run_audio(&input_stream, &output_stream);
 
     std::thread::park();
 
@@ -323,7 +323,7 @@ fn setup_model_disposal(
     })
 }
 
-fn run_audio(input_stream: cpal::Stream, output_stream: cpal::Stream) -> () {
+fn run_audio(input_stream: &cpal::Stream, output_stream: &cpal::Stream) -> () {
     input_stream.play().unwrap();
     output_stream.play().unwrap();
 }
