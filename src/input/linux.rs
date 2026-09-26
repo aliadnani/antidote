@@ -2,7 +2,7 @@ use gpiocdev::Request;
 use gpiocdev::line::{Bias, Value};
 use std::time::{Duration, Instant};
 
-use super::{ButtonPoller, Input, InputError, InputEvent, event_for_press_duration_ns};
+use super::{ButtonPoller, Input, InputError, InputEvent };
 
 pub struct PlatformInput {
     button: Request,
