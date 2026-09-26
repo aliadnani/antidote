@@ -96,6 +96,8 @@ fn main() {
 
     run_audio(input_stream, output_stream);
 
+    std::thread::park();
+
     // Exit and cleanup
     drop(audio_thread);
     drop(coordinator_thread);
