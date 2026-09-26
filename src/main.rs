@@ -105,6 +105,9 @@ fn main() {
 
     std::thread::park();
 
+    drop(input_stream);
+    drop(output_stream);
+
     // Exit and cleanup
     drop(audio_thread);
     drop(coordinator_thread);
@@ -320,7 +323,7 @@ fn setup_model_disposal(
     })
 }
 
-fn run_audio(input_stream: cpal::Stream, output_stream: cpal::Stream) {
+fn run_audio(input_stream: cpal::Stream, output_stream: cpal::Stream) -> () {
     input_stream.play().unwrap();
     output_stream.play().unwrap();
 }
