@@ -5,6 +5,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use crossbeam::queue::ArrayQueue;
+use cxx::UniquePtr;
 use tracing::{info, warn};
 
 use crate::{
@@ -13,6 +14,7 @@ use crate::{
     display::PlatformDisplay,
     input::PlatformInput,
     modeller::Modeller,
+    nam_ffi::NamA2Model,
     preprocessor::PreProcessor,
     state::State,
 };
@@ -69,6 +71,10 @@ fn main() {
     // Set up inter-thread communication channel for audio commands
     let (command_sender, command_receiver) = crossbeam::channel::unbounded::<audio::AudioCommand>();
 
+    // Set up disposal of retired NAM models on a dedicated thread - their destructors
+    let (disposal_tx, disposal_rx) = crossbeam::channel::unbounded::<UniquePtr<NamA2Model>>();
+    let model_disposal_handle = setup_model_disposal(disposal_rx);
+
     // Set up input -> state -> audio command coordination
     let coordinator_thread = setup_coordinator(command_sender, state);
 
@@ -77,6 +83,7 @@ fn main() {
         inputs.clone(),
         outputs.clone(),
         command_receiver,
+        disposal_tx,
         audio_stats.clone(),
         Some(&initial_model_path),
     );
@@ -102,6 +109,7 @@ fn main() {
     drop(audio_thread);
     drop(coordinator_thread);
     drop(audio_stats_handle);
+    drop(model_disposal_handle);
 
     info!("Exiting Antidote.");
 }
@@ -158,11 +166,12 @@ fn setup_nam_processing_with_default_model(
     inputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
     outputs: Arc<ArrayQueue<[f32; AUDIO_CHANNELS]>>,
     command_receiver: crossbeam::channel::Receiver<audio::AudioCommand>,
+    disposal_tx: crossbeam::channel::Sender<UniquePtr<NamA2Model>>,
     audio_stats: Arc<AudioStats>,
     default_model_path: Option<&str>,
 ) -> std::thread::JoinHandle<()> {
     // NAM + Audio subsystem
-    let mut modeller = modeller::NamA2ModelModeller::new();
+    let mut modeller = modeller::NamA2ModelModeller::new(disposal_tx);
 
     if let Some(model_path) = default_model_path {
         modeller
@@ -297,6 +306,16 @@ fn setup_audio_stats_reporting(audio_stats: Arc<AudioStats>) -> std::thread::Joi
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
             audio_stats.report();
+        }
+    })
+}
+
+fn setup_model_disposal(
+    disposal_rx: crossbeam::channel::Receiver<UniquePtr<NamA2Model>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        while let Ok(retired_model) = disposal_rx.recv() {
+            drop(retired_model);
         }
     })
 }

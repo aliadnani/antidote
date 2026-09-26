@@ -12,6 +12,8 @@ std::unique_ptr<nam::DSP> load_nam_a2_model_path(rust::Str model_path_str) {
 
     std::unique_ptr<nam::DSP> dsp = nam::get_dsp(model_path);
 
+    dsp->ResetAndPrewarm(48000.0, 64);
+
     return dsp;
 }
 

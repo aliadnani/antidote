@@ -116,7 +116,8 @@ fn test_nam_a2_model_inference() {
 
 #[test]
 fn test_unload_load_unload() {
-    let mut modeller = NamA2ModelModeller::new();
+    let (disposal_tx, _disposal_rx) = crossbeam::channel::unbounded();
+    let mut modeller = NamA2ModelModeller::new(disposal_tx);
 
     // Test unloaded: should be a pass-through; sine wave untouched
     let input = generate_sine_wave(110.0, 48000.0, 2.0);
