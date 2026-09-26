@@ -1,3 +1,4 @@
+use crossbeam::channel::Sender;
 use cxx::UniquePtr;
 use thiserror::Error;
 use tracing::info;
@@ -23,11 +24,22 @@ pub enum ModellerError {
 
 pub struct NamA2ModelModeller {
     dsp: Option<UniquePtr<NamA2Model>>,
+    // A dedicated thread to unload models - doing this on the audio hot loop causes dropouts, so hence we do it here
+    disposal_tx: Sender<UniquePtr<NamA2Model>>,
 }
 
 impl NamA2ModelModeller {
-    pub fn new() -> Self {
-        NamA2ModelModeller { dsp: None }
+    pub fn new(disposal_tx: Sender<UniquePtr<NamA2Model>>) -> Self {
+        NamA2ModelModeller {
+            dsp: None,
+            disposal_tx,
+        }
+    }
+
+    fn dispose_dsp(&self, dsp: Option<UniquePtr<NamA2Model>>) {
+        if let Some(old) = dsp {
+            let _ = self.disposal_tx.send(old);
+        }
     }
 }
 
@@ -39,7 +51,8 @@ impl Modeller for NamA2ModelModeller {
             }
         })?;
 
-        self.dsp = Some(dsp);
+        let old = self.dsp.replace(dsp);
+        self.dispose_dsp(old);
 
         info!(model_path = %model_path, "Loaded NAM A2 model.");
 
@@ -47,12 +60,14 @@ impl Modeller for NamA2ModelModeller {
     }
 
     fn load_preloaded_nam_a2_model(&mut self, dsp: UniquePtr<NamA2Model>) {
-        self.dsp = Some(dsp);
+        let old = self.dsp.replace(dsp);
+        self.dispose_dsp(old);
     }
 
     // DSP field is mostly infallible - doesn't make sense to return a Result.
     fn unload_nam_a2_model(&mut self) {
-        self.dsp = None;
+        let old = self.dsp.take();
+        self.dispose_dsp(old);
 
         info!("Unloaded NAM A2 model.");
     }
