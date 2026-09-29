@@ -3,12 +3,20 @@
 Budget neural amp modelling on a Radxa Cubie A7Z.
 
 ---
-
 <img src="./images/enclosure.png" width="600" alt="enclosure" />
 
 [(sloppy demo video)](https://www.youtube.com/shorts/qqARMGN2HPs)
 
-The repository houses the hardware/firmware for a standalone neural amp modelling guitar pedal hosted on a Linux SBC. Written in Rust and FFIs into the [NAM A2 inference engine](https://github.com/sdatkinson/NeuralAmpModelerCore).
+## Project Goals:
+
+- Build a standalone 'Neural Amp Modeler' guitar effects pedal.
+- Write the firmware in Rust - FFI/wrap the underlying NAM A2 C++ library.
+- Build out the custom hardware/PCBs to interface instrument level audio signals.
+- Make it really fast: 10ms per buffer maximum, aiming <5ms.
+
+These project goals lead to using a Linux SBC as the platform to build this pedal off of.
+
+## This Repo:
 
 This repository contains:
 
@@ -101,7 +109,7 @@ Once everything is working, some things you can do to make the pedal more usable
 
 ## Some design goals/notes:
 
-In principle, this project actually builds an entire hardware platform for *any* real-time guitar processing application for Linux SBCs. You can just as easily swap out the the firmware for another that runs say LV2/VST plugins. Though the main focus is on a standalone NAM pedal.
+In principle, this project actually builds an entire hardware platform for *any* real-time guitar processing application for Linux SBCs. You can just as easily swap out the the firmware for another that runs say LV2/VST plugins. Though the main focus for this project is a standalone NAM pedal.
 
 
 ---
