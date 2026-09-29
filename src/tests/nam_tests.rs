@@ -4,10 +4,13 @@ use crate::{
     tests::assert_f32_slices_within_ulps,
 };
 
+// Test fixture copied from NeuralAmpModelerCore's example_models/A2.nam.
+const TEST_NAM_MODEL_PATH: &str = "resources/tests/a2.nam";
+
 #[test]
 fn test_nam_a2_model_load() {
-    let dsp = nam_ffi::load_nam_a2_model_path("resources/tests/fender_clean.nam")
-        .expect("Could not load NAM A2 model.");
+    let dsp =
+        nam_ffi::load_nam_a2_model_path(TEST_NAM_MODEL_PATH).expect("Could not load NAM A2 model.");
 
     let sample_rate = nam_ffi::get_nam_a2_model_expected_sample_rate(&dsp);
 
@@ -29,8 +32,8 @@ fn generate_sine_wave(frequency: f32, sample_rate: f32, duration_secs: f32) -> V
 
 #[test]
 fn test_nam_a2_model_inference() {
-    let mut dsp = nam_ffi::load_nam_a2_model_path("resources/tests/fender_clean.nam")
-        .expect("Could not load NAM A2 model.");
+    let mut dsp =
+        nam_ffi::load_nam_a2_model_path(TEST_NAM_MODEL_PATH).expect("Could not load NAM A2 model.");
 
     let input: Vec<f32> = generate_sine_wave(110.0, 48000.0, 2.0);
     let mut output = vec![0.0; input.len()];
@@ -81,16 +84,16 @@ fn test_nam_a2_model_inference() {
     assert_f32_slices_within_ulps(
         &output[..10],
         &[
-            0.00052450894,
-            0.00023981501,
-            -0.0008804427,
-            -0.0037150017,
-            -0.008411667,
-            -0.013675765,
-            -0.017835798,
-            -0.019450665,
-            -0.018403785,
-            -0.0155082615,
+            -0.0034633796,
+            -0.006979144,
+            -0.013950484,
+            -0.03504115,
+            -0.07285835,
+            -0.114483975,
+            -0.14344479,
+            -0.15780656,
+            -0.16182058,
+            -0.15715274,
         ],
         4,
         "NAM inference output head",
@@ -98,16 +101,16 @@ fn test_nam_a2_model_inference() {
     assert_f32_slices_within_ulps(
         &output[output.len() - 10..],
         &[
-            -0.2014261,
-            -0.20054963,
-            -0.20059547,
-            -0.20158094,
-            -0.20348664,
-            -0.20627508,
-            -0.2098254,
-            -0.21388681,
-            -0.2181065,
-            -0.2220757,
+            -0.20916332,
+            -0.21214621,
+            -0.21525365,
+            -0.2183323,
+            -0.2212951,
+            -0.22409782,
+            -0.22671857,
+            -0.22935577,
+            -0.2325447,
+            -0.2371557,
         ],
         4,
         "NAM inference output tail",
@@ -129,7 +132,7 @@ fn test_unload_load_unload() {
 
     // Load the model
     modeller
-        .load_nam_a2_model("resources/tests/fender_clean.nam")
+        .load_nam_a2_model(TEST_NAM_MODEL_PATH)
         .expect("Could not load NAM A2 model.");
 
     // Test loaded: should be processed; sine wave should be different
@@ -139,16 +142,16 @@ fn test_unload_load_unload() {
     assert_f32_slices_within_ulps(
         &output[..10],
         &[
-            0.00052450894,
-            0.00023981501,
-            -0.0008804427,
-            -0.0037150017,
-            -0.008411667,
-            -0.013675765,
-            -0.017835798,
-            -0.019450665,
-            -0.018403785,
-            -0.0155082615,
+            -0.0034633796,
+            -0.006979144,
+            -0.013950484,
+            -0.03504115,
+            -0.07285835,
+            -0.114483975,
+            -0.14344479,
+            -0.15780656,
+            -0.16182058,
+            -0.15715274,
         ],
         4,
         "NAM modeller output head",

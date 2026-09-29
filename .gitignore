@@ -10,3 +10,6 @@ hardware/antidote-audio-board/production/
 hardware/antidote-audio-board/antidote-audio-board-backups/
 cross-sysroot/
 
+# NAM models: keep only the checked-in test fixture.
+*.nam
+!resources/tests/a2.nam
