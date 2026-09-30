@@ -7,24 +7,18 @@ Budget neural amp modelling on a Radxa Cubie A7Z.
 
 [(sloppy demo video)](https://www.youtube.com/shorts/qqARMGN2HPs)
 
-## Project Goals:
+## What this project does
 
-- Build a standalone 'Neural Amp Modeler' guitar effects pedal.
-- Write the firmware in Rust - FFI/wrap the underlying NAM A2 C++ library.
-- Build out the custom hardware/PCBs to interface instrument level audio signals.
-- Make it really fast: 10ms per buffer maximum, aiming <5ms.
+Neural Amp Modeler (NAM) uses neural networks to model guitar amplifiers from recorded input/output pairs, then reproduces their response on live guitar audio. I want to make a standalone guitar pedal for it.
 
-These project goals lead to using a Linux SBC as the platform to build this pedal off of.
+Rust firmware runs on a Radxa Cubie A7Z Linux SBC. It manages real-time audio capture and playback, including the hot loop that processes each buffer, wraps NAM A2’s C++ DSP library via FFI, and coordinates model loading and the pedal’s peripherals. A custom audio board provides instrument-level input and output.
 
-## This Repo:
+The end goal is a budget, performant, standalone NAM pedal targetting buffers processed in under 10 ms (ideally under 5 ms) - essentially the threshold for human auditory latency perception.
 
-This repository contains:
+## This repo
 
-- The firmware
-  - The Rust firmware for the pedal, including the audio processing pipeline and the inference engine FFI.
-- The hardware files
-  - The schematics and PCB design files for the audio 'sound card' to condition instrument level signals and read/write audio to/from the SBC.
-  - The Linux device tree overlay for this audio board.
+- `src/`: Rust firmware for audio processing, NAM A2 FFI, model loading, and pedal controls.
+- `hardware/`: Schematics and PCB design files for the audio board + associated Linux device tree overlays
 
 **Please see this repository as more of a reference design for what's possible and how such a pedal could be built, rather than a polished product.**
 
@@ -44,17 +38,15 @@ This repository contains:
 
 <img src="./images/hardware.png" width="300" alt="hardware setup" />
 
-## Firmware
+## Firmware setup
 
 1. Flash the SBC with Linux. Official Radxa images or community Armbian images should work fine.
-2. Compile and load the drivers for the audio board's underlying codec (TAC5112).
-   - See the [TI git repository](https://git.ti.com/cgit/lpaa-android-drivers/tac5x1x-linux-driver/?h=tac5x1x_driver) for the source. Check into whichever branch/tag is compatible with your kernel version.
-   - `make` then `insmod`/`modprobe` the kernel module.
+2. Compile and load the driver for the audio board's codec (TAC5112).
+   - See the [TI git repository](https://git.ti.com/cgit/lpaa-android-drivers/tac5x1x-linux-driver/?h=tac5x1x_driver) for the source. Check out a branch or tag compatible with your kernel version.
+   - Run `make`, then load the kernel module with `insmod` or `modprobe`.
 3. Compile and load the device tree overlay for the audio board.
-   - See the `./hardware/tac5112_i2c_i2s_overlay.dts` file for the device tree source. `dtc` to compile it into a `.dtbo` file, then load it via `rsetup`
-4. Compile the firmware either on the SBC directly, or cross-compile it on a host machine.
-   - Make sure to `git submodule update --init --recursive` to pull in all the dependencies before hand
-5. *You may or may not need to run these commands to set up the codecs ADCs/DACs/recording/playback paths.*
+   - The source is `./hardware/tac5112_i2c_i2s_overlay.dts`. Compile it with `dtc` into a `.dtbo` file, then load it via `rsetup`.
+4. Configure the codec's ADC, DAC, and capture/playback paths if needed. These commands may be needed:
    ```sh
    sudo amixer -c 0 cset name='ASI_RX_CH1_EN Switch' on
    sudo amixer -c 0 cset name='OUT1x Source' 'DAC Input'
@@ -76,13 +68,19 @@ This repository contains:
    sudo amixer -c 0 cset name='IN1 Source Mux' 'Analog'
    sudo amixer -c 0 cset name='IN2 Source Mux' 'Analog'
    ```
-6. Compile and run the firmware (**in release mode!**). Pass in the directory filled with `.nam` files as an arguement. e.g
-   ```bash
-   > cargo build --release
-   > ./target/release/antidote /path/to/nam/files
+5. Pull in the dependencies, then build the firmware in release mode on the SBC or cross-compile it on a host:
+   ```sh
+   git submodule update --init --recursive
+   cargo build --release
+   ```
+6. Run the firmware in release mode, passing the directory containing your `.nam` models. If omitted, it uses `resources/`:
+   ```sh
+   ./target/release/antidote /path/to/nam/files
    # Or:
-   > cargo run --release -- /path/to/nam/files
-   ...
+   cargo run --release -- /path/to/nam/files
+   ```
+
+   ```text
    2026-09-25T16:57:33.860341Z  INFO antidote: Starting Antidote.
    2026-09-25T16:57:33.880659Z  INFO antidote::modeller: Loaded NAM A2 model. model_path=resources/fender_brown.nam
    2026-09-25T16:57:33.880875Z  INFO antidote: Starting CPAL.
@@ -90,7 +88,6 @@ This repository contains:
    2026-09-25T16:57:34.898597Z  INFO antidote::audio: Audio errors input_drops=0 output_drops=0 output_underruns=320
    2026-09-25T16:57:35.898842Z  INFO antidote::audio: Audio errors input_drops=0 output_drops=0 output_underruns=320
    2026-09-25T16:57:36.899102Z  INFO antidote::audio: Audio errors input_drops=0 output_drops=0 output_underruns=320
-   ...
    ...
    ```
 
